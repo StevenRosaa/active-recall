@@ -1,0 +1,3799 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of a subset of the repository's contents that is considered the most important context.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: **/*.ts, **/*.tsx
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+next.config.ts
+src/app/(auth)/login/actions.ts
+src/app/(auth)/login/page.tsx
+src/app/(dashboard)/dashboard/activity-form.tsx
+src/app/(dashboard)/dashboard/activity-list.tsx
+src/app/(dashboard)/dashboard/calendar-dashboard.tsx
+src/app/(dashboard)/dashboard/page.tsx
+src/app/(dashboard)/layout.tsx
+src/app/actions/activities.ts
+src/app/actions/profile.ts
+src/app/api/cron/reminders/route.ts
+src/app/layout.tsx
+src/app/page.tsx
+src/components/activity-details-dialog.tsx
+src/components/activity-form.tsx
+src/components/activity-manager-button.tsx
+src/components/activity-manager-dialog.tsx
+src/components/nav-bar.tsx
+src/components/settings-dialog.tsx
+src/components/theme-provider.tsx
+src/components/ui/button.tsx
+src/components/ui/calendar.tsx
+src/components/ui/card.tsx
+src/components/ui/checkbox.tsx
+src/components/ui/dialog.tsx
+src/components/ui/input.tsx
+src/components/ui/label.tsx
+src/components/ui/popover.tsx
+src/components/ui/select.tsx
+src/components/ui/switch.tsx
+src/components/ui/textarea.tsx
+src/components/user-menu.tsx
+src/lib/utils.ts
+src/middleware.ts
+src/types/index.ts
+src/utils/supabase/client.ts
+src/utils/supabase/middleware.ts
+src/utils/supabase/server.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/app/(auth)/login/actions.ts">
+'use server'
+
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/utils/supabase/server'
+import { Provider } from '@supabase/supabase-js'
+
+export async function login(formData: FormData) {
+  const supabase = await createClient()
+  const data = {
+    email: formData.get('email') as string,
+    password: formData.get('password') as string,
+  }
+
+  const { error } = await supabase.auth.signInWithPassword(data)
+
+  if (error) {
+    redirect('/login?error=Impossibile accedere con queste credenziali')
+  }
+
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
+}
+
+export async function signup(formData: FormData) {
+  const supabase = await createClient()
+  const data = {
+    email: formData.get('email') as string,
+    password: formData.get('password') as string,
+  }
+
+  const firstName = formData.get('first_name') as string
+  const lastName = formData.get('last_name') as string
+  const birthDate = formData.get('birth_date') as string
+  const username = formData.get('username') as string
+
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    ...data,
+    options: {
+      data: {
+        full_name: `${firstName} ${lastName}`,
+        first_name: firstName,
+        last_name: lastName,
+        birth_date: birthDate,
+        username: username
+      }
+    }
+  })
+
+  if (authError || !authData.user) {
+    redirect('/login?error=Impossibile registrare utente')
+  }
+
+  // Creazione automatica del record del profilo
+  const { error: profileError } = await supabase.from('profiles').insert({
+    id: authData.user.id,
+    first_name: firstName,
+    last_name: lastName,
+    birth_date: birthDate,
+    username: username,
+    is_active: true
+  })
+
+  if (profileError) {
+    console.error("Profile creation error:", profileError)
+  }
+
+  revalidatePath('/', 'layout')
+  redirect('/dashboard')
+}
+
+// Nuova funzione per OAuth (Google / Apple)
+export async function signInWithOAuth(provider: Provider) {
+  const supabase = await createClient()
+
+  // URL base per il reindirizzamento dopo il login (fallback su localhost per lo sviluppo)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: {
+      redirectTo: `${siteUrl}/auth/callback`,
+    },
+  })
+
+  if (data.url) {
+    redirect(data.url)
+  }
+}
+</file>
+
+<file path="src/app/(auth)/login/page.tsx">
+'use client'
+
+import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { login, signup, signInWithOAuth } from './actions'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { motion } from 'framer-motion'
+import { Mail, Lock, ArrowRight, ArrowLeft, User, Calendar, AtSign } from 'lucide-react'
+import { AnimatePresence } from 'framer-motion'
+
+const GoogleIcon = () => (
+  <svg className="w-5 h-5" viewBox="0 0 24 24">
+    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
+  </svg>
+)
+
+const AppleIcon = () => (
+  <svg className="w-5 h-5 text-foreground" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.04 2.31-.86 3.73-.8 1.58.11 2.81.76 3.58 1.94-3.07 1.84-2.58 5.86.35 7.15-.69 1.63-1.57 3.06-2.74 3.88zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.33 2.33-1.89 4.31-3.74 4.25z" />
+  </svg>
+)
+
+function AuthForm() {
+  const searchParams = useSearchParams()
+  const error = searchParams.get('error')
+  const [isLogin, setIsLogin] = useState(true)
+  const [registerStep, setRegisterStep] = useState<1 | 2>(1)
+  
+  // State for preserving form data during AnimatePresence unmounts
+  const [regData, setRegData] = useState({
+    email: '', password: '', firstName: '', lastName: '', birthDate: '', username: ''
+  })
+
+  // Molla configurata per un Flip 3D elegante e bilanciato
+  const springConfig = { type: "spring" as const, stiffness: 120, damping: 20 }
+
+  return (
+    <div className="w-full max-w-md relative z-10" style={{ perspective: "1200px" }}>
+
+      <motion.div
+        initial={false}
+        // Il contenitore intero ruota sull'asse Y
+        animate={{ rotateY: isLogin ? 0 : 180 }}
+        transition={springConfig}
+        style={{ transformStyle: "preserve-3d" }}
+        className="w-full relative"
+      >
+
+        {/* ======================= */}
+        {/* FACCIATA 1: LOGIN (FRONT) */}
+        {/* ======================= */}
+        <div
+          className="w-full rounded-[2rem] p-6 md:p-10 border border-border bg-background/95 shadow-2xl shadow-black/40 flex flex-col relative overflow-hidden"
+          style={{
+            backfaceVisibility: "hidden",
+            WebkitBackfaceVisibility: "hidden",
+            pointerEvents: isLogin ? "auto" : "none"
+          }}
+        >
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent" />
+
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">Bentornato</h1>
+            <p className="text-muted-foreground text-sm font-medium">Accedi per continuare a studiare.</p>
+          </div>
+
+          <div className="min-h-[48px] mb-2 flex items-end justify-center">
+            {error && (
+              <div className="w-full p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium text-center">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 mb-6">
+            <Button variant="outline" onClick={() => signInWithOAuth('google')} className="w-full h-12 bg-card/50 hover:bg-accent border-border text-foreground hover:text-accent-foreground rounded-xl transition-transform active:scale-95">
+              <GoogleIcon /> Accedi con Google
+            </Button>
+            <Button variant="outline" onClick={() => signInWithOAuth('apple')} className="w-full h-12 bg-card/50 hover:bg-accent border-border text-foreground hover:text-accent-foreground rounded-xl transition-transform active:scale-95">
+              <AppleIcon /> Accedi con Apple
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-px bg-border flex-1" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Oppure</span>
+            <div className="h-px bg-border flex-1" />
+          </div>
+
+          <form className="flex flex-col gap-4 w-full">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="email-login" className="text-xs text-muted-foreground ml-1">Email</Label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input id="email-login" name="email" type="email" placeholder="nome@esempio.com" required className="pl-11 bg-card/50 border-border focus-visible:ring-primary rounded-xl h-12 text-sm text-foreground" />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="password-login" className="text-xs text-muted-foreground ml-1">Password</Label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input id="password-login" name="password" type="password" placeholder="••••••••" required className="pl-11 bg-card/50 border-border focus-visible:ring-primary rounded-xl h-12 text-sm text-foreground" />
+              </div>
+            </div>
+
+            <Button type="submit" formAction={login} className="w-full h-12 mt-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-transform active:scale-95 group flex items-center justify-center gap-2">
+              Accedi
+              <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-1 transition-transform" />
+            </Button>
+          </form>
+
+          <div className="mt-8 text-center">
+            <button type="button" onClick={() => setIsLogin(false)} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Non hai un account? <span className="text-primary font-semibold underline underline-offset-4 decoration-primary/30 hover:decoration-primary">Registrati</span>
+            </button>
+          </div>
+        </div>
+
+        {/* ========================== */}
+        {/* FACCIATA 2: REGISTER (BACK) */}
+        {/* ========================== */}
+        <div
+          className="absolute top-0 left-0 w-full h-full rounded-[2rem] p-6 md:p-10 border border-border bg-background/95 shadow-2xl shadow-black/40 flex flex-col overflow-hidden"
+          style={{
+            backfaceVisibility: "hidden",
+            WebkitBackfaceVisibility: "hidden",
+            transform: "rotateY(180deg)",
+            pointerEvents: !isLogin ? "auto" : "none"
+          }}
+        >
+          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent" />
+
+          <div className="mb-8 text-center">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground mb-2">Nuovo Account</h1>
+            <p className="text-muted-foreground text-sm font-medium">Inizia a organizzare il tuo studio.</p>
+          </div>
+
+          <div className="min-h-[48px] mb-2 flex items-end justify-center">
+            {error && (
+              <div className="w-full p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium text-center">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-3 mb-6">
+            <Button variant="outline" onClick={() => signInWithOAuth('google')} className="w-full h-12 bg-card/50 hover:bg-accent border-border text-foreground hover:text-accent-foreground rounded-xl transition-transform active:scale-95">
+              <GoogleIcon /> Registrati con Google
+            </Button>
+            <Button variant="outline" onClick={() => signInWithOAuth('apple')} className="w-full h-12 bg-card/50 hover:bg-accent border-border text-foreground hover:text-accent-foreground rounded-xl transition-transform active:scale-95">
+              <AppleIcon /> Registrati con Apple
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-px bg-border flex-1" />
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Oppure</span>
+            <div className="h-px bg-border flex-1" />
+          </div>
+
+          <form className="flex flex-col gap-4 w-full" action={signup}>
+            <AnimatePresence mode="popLayout" initial={false}>
+              {registerStep === 1 && (
+                <motion.div
+                  key="step1"
+                  initial={{ opacity: 0, x: -50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -50 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                  className="w-full flex flex-col gap-4"
+                >
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="email-register" className="text-xs text-muted-foreground ml-1">Email</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input id="email-register" name="email" type="email" value={regData.email} onChange={(e) => setRegData({...regData, email: e.target.value})} placeholder="nome@esempio.com" required className="pl-11 bg-card/50 border-border focus-visible:ring-primary rounded-xl h-12 text-sm text-foreground" />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="password-register" className="text-xs text-muted-foreground ml-1">Password</Label>
+                    <div className="relative">
+                      <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input id="password-register" name="password" type="password" value={regData.password} onChange={(e) => setRegData({...regData, password: e.target.value})} placeholder="••••••••" required className="pl-11 bg-card/50 border-border focus-visible:ring-primary rounded-xl h-12 text-sm text-foreground" />
+                    </div>
+                  </div>
+
+                  <Button type="button" onClick={() => setRegisterStep(2)} disabled={!regData.email || !regData.password} className="w-full h-12 mt-2 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-transform active:scale-95 group flex items-center justify-center gap-2">
+                    Avanti
+                    <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-1 transition-transform" />
+                  </Button>
+                </motion.div>
+              )}
+
+              {registerStep === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 50 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 50 }}
+                  transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                  className="w-full flex flex-col gap-4"
+                >
+                  {/* Hidden inputs to pass data from step 1 */}
+                  <input type="hidden" name="email" value={regData.email} />
+                  <input type="hidden" name="password" value={regData.password} />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="first_name" className="text-xs text-muted-foreground ml-1">Nome</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input id="first_name" name="first_name" value={regData.firstName} onChange={(e) => setRegData({...regData, firstName: e.target.value})} placeholder="Mario" required className="pl-9 bg-card/50 border-border rounded-xl h-11 text-sm text-foreground" />
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="last_name" className="text-xs text-muted-foreground ml-1">Cognome</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input id="last_name" name="last_name" value={regData.lastName} onChange={(e) => setRegData({...regData, lastName: e.target.value})} placeholder="Rossi" required className="pl-9 bg-card/50 border-border rounded-xl h-11 text-sm text-foreground" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="username" className="text-xs text-muted-foreground ml-1">Username</Label>
+                    <div className="relative">
+                      <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input id="username" name="username" value={regData.username} onChange={(e) => setRegData({...regData, username: e.target.value})} placeholder="mariorossi99" required className="pl-11 bg-card/50 border-border rounded-xl h-11 text-sm text-foreground" />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="birth_date" className="text-xs text-muted-foreground ml-1">Data di Nascita</Label>
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <Input id="birth_date" name="birth_date" type="date" value={regData.birthDate} onChange={(e) => setRegData({...regData, birthDate: e.target.value})} required className="pl-11 bg-card/50 border-border rounded-xl h-11 text-sm text-foreground [&::-webkit-calendar-picker-indicator]:dark:invert" />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 mt-2">
+                    <Button type="button" variant="outline" onClick={() => setRegisterStep(1)} className="w-12 shrink-0 h-12 rounded-xl bg-card/50 border-border text-foreground hover:bg-accent transition-transform active:scale-95 flex items-center justify-center p-0">
+                      <ArrowLeft className="w-4 h-4" />
+                    </Button>
+                    <Button type="submit" disabled={!regData.firstName || !regData.lastName || !regData.username || !regData.birthDate} className="flex-1 h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-transform active:scale-95 group flex items-center justify-center gap-2">
+                      Crea Account
+                      <ArrowRight className="w-4 h-4 opacity-70 group-hover:translate-x-1 transition-transform" />
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </form>
+
+          <div className="mt-8 text-center">
+            <button type="button" onClick={() => setIsLogin(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Hai già un account? <span className="text-primary font-semibold underline underline-offset-4 decoration-primary/30 hover:decoration-primary">Accedi</span>
+            </button>
+          </div>
+        </div>
+
+      </motion.div>
+    </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-background p-4 relative overflow-hidden">
+      {/* Manteniamo i globi luminosi sullo sfondo della pagina per l'effetto wow! */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/30 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[100px] opacity-50 animate-pulse-slow" />
+      <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-accent/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-50" />
+
+      <div className="absolute inset-0 bg-black/5 dark:bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,black,transparent)] dark:[mask-image:linear-gradient(180deg,white,transparent)] opacity-20 pointer-events-none" />
+
+      <Suspense fallback={
+        <div className="w-full max-w-md h-[600px] rounded-[2rem] border border-border bg-background/80 animate-pulse" />
+      }>
+        <AuthForm />
+      </Suspense>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/(dashboard)/dashboard/activity-form.tsx">
+'use client'
+
+import { addActivity } from '@/app/actions/activities'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { format } from 'date-fns'
+import { useTransition, useState, useEffect } from 'react'
+import { DateRange } from 'react-day-picker'
+import { motion } from 'framer-motion'
+import { X } from 'lucide-react'
+
+const AnimatedCheckbox = ({ id, name, defaultChecked = false, label }: { id: string, name: string, defaultChecked?: boolean, label: string }) => {
+  const [checked, setChecked] = useState(defaultChecked)
+  return (
+    <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setChecked(!checked)}>
+      <input type="checkbox" id={id} name={name} checked={checked} readOnly className="hidden" />
+      <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-colors border-2 ${checked ? 'bg-primary border-primary shadow-[0_0_10px_rgba(168,85,247,0.5)]' : 'border-border/50 group-hover:border-border bg-card/20'}`}>
+        <motion.svg
+          initial={false}
+          animate={{ opacity: checked ? 1 : 0, scale: checked ? 1 : 0.5 }}
+          className="w-4 h-4 text-background"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <motion.path
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: checked ? 1 : 0 }}
+            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+            d="M20 6L9 17l-5-5"
+          />
+        </motion.svg>
+      </div>
+      <Label htmlFor={id} className="text-sm font-bold tracking-wide cursor-pointer select-none text-foreground/90">{label}</Label>
+    </div>
+  )
+}
+
+export default function ActivityFormDialog({
+  open,
+  onOpenChange,
+  date,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  date: DateRange | Date | undefined
+}) {
+  const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = 'unset'
+    }
+    return () => { document.body.style.overflow = 'unset' }
+  }, [open])
+
+  if (!open) return null
+
+  let fromDate: Date | undefined
+  let toDate: Date | undefined
+
+  if (date instanceof Date) {
+    fromDate = date
+  } else if (date?.from) {
+    fromDate = date.from
+    toDate = date.to
+  }
+
+  const isRange = !!toDate && fromDate !== toDate
+
+  const handleSubmit = (formData: FormData) => {
+    startTransition(async () => {
+      if (fromDate) formData.set('dateFrom', format(fromDate, 'yyyy-MM-dd'))
+      if (toDate) formData.set('dateTo', format(toDate, 'yyyy-MM-dd'))
+      await addActivity(formData)
+      onOpenChange(false)
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={() => onOpenChange(false)}
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+      />
+
+      <motion.div 
+        layoutId="form-modal-container"
+        className="w-full max-w-lg glass-card rounded-[2rem] p-8 md:p-10 relative z-10 flex flex-col shadow-[0_0_50px_rgba(0,0,0,0.5)] border border-border"
+      >
+        <button 
+          onClick={() => onOpenChange(false)}
+          type="button"
+          className="absolute top-6 right-6 text-foreground/50 hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <div className="mb-8 pr-12">
+          <h2 className="text-3xl font-black bg-gradient-to-r from-foreground to-foreground/50 bg-clip-text text-transparent">
+            Nuova Sessione
+          </h2>
+          <p className="text-sm text-foreground/60 mt-2 font-medium">
+            {isRange 
+              ? `Dal ${format(fromDate!, 'd MMM yyyy')} al ${format(toDate!, 'd MMM yyyy')}`
+              : fromDate ? `Programma per il ${format(fromDate, 'd MMM yyyy')}` : ''}
+          </p>
+        </div>
+
+        <form action={handleSubmit} className="flex flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="subject" className="font-black text-xs uppercase tracking-widest text-primary">Materia / Argomento</Label>
+            <Input id="subject" name="subject" required placeholder="Es. Anatomia - Sistema Nervoso" className="bg-card/30 border-border focus-visible:ring-primary rounded-xl h-12 text-lg shadow-inner text-foreground" />
+          </div>
+          
+          <div className="flex gap-8 p-6 rounded-2xl bg-card/30 border border-border/50 shadow-inner">
+            <AnimatedCheckbox id="is_repetition" name="is_repetition" defaultChecked label="RIPETIZIONE" />
+            <AnimatedCheckbox id="is_exercise" name="is_exercise" label="ESERCIZI" />
+          </div>
+          
+          {!isRange && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="recurrence" className="font-black text-xs uppercase tracking-widest text-accent">Ricorsività</Label>
+              <Select name="recurrence" required defaultValue="nessuna">
+                <SelectTrigger className="bg-card/30 border-border rounded-xl h-12 shadow-inner text-foreground">
+                  <SelectValue placeholder="Seleziona..." />
+                </SelectTrigger>
+                <SelectContent className="glass-card border-border rounded-xl text-foreground">
+                  <SelectItem value="nessuna">Singola Sessione</SelectItem>
+                  <SelectItem value="giornaliera">Ogni giorno (30gg)</SelectItem>
+                  <SelectItem value="settimanale">Ogni settimana (12 sett.)</SelectItem>
+                  <SelectItem value="active_recall">Active Recall (Day 1, 3, 7, 21)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="notes" className="font-black text-xs uppercase tracking-widest text-foreground/50">Note Aggiuntive</Label>
+            <Textarea
+              id="notes"
+              name="notes"
+              placeholder="Appunti, link, riferimenti..."
+              className="resize-none bg-card/30 border-border rounded-xl focus-visible:ring-primary shadow-inner text-foreground"
+              rows={3}
+            />
+          </div>
+          
+          <Button type="submit" disabled={isPending} className="w-full h-14 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground font-black text-xl shadow-[0_0_30px_rgba(168,85,247,0.4)] transition-all mt-4 hover:scale-[1.02]">
+            {isPending ? 'Salvataggio...' : 'Conferma'}
+          </Button>
+        </form>
+      </motion.div>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/(dashboard)/dashboard/activity-list.tsx">
+'use client'
+
+import { Activity } from '@/types/index'
+import { deleteActivity } from '@/app/actions/activities'
+import { Button } from '@/components/ui/button'
+import { Trash2 } from 'lucide-react'
+import { useTransition } from 'react'
+import { motion, AnimatePresence, Variants } from 'framer-motion'
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1
+    }
+  }
+}
+
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 30, scale: 0.9 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { type: "spring", stiffness: 300, damping: 24 } }
+}
+
+export default function ActivityList({ activities }: { activities: Activity[] }) {
+  const [isPending, startTransition] = useTransition()
+
+  if (activities.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring" }}
+        className="flex flex-col items-center justify-center h-40 text-center text-muted-foreground border border-dashed border-border/50 rounded-2xl m-2"
+      >
+        <p className="font-medium">Nessuna attività programmata.</p>
+        <p className="text-sm mt-1 opacity-70">Seleziona un giorno per iniziare.</p>
+      </motion.div>
+    )
+  }
+
+  const handleDelete = (id: string) => {
+    startTransition(async () => {
+      await deleteActivity(id)
+    })
+  }
+
+  return (
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="flex flex-col gap-4 relative px-2 pb-4"
+    >
+      <AnimatePresence>
+        {activities.map((activity) => (
+          <motion.div
+            key={activity.id}
+            layout
+            variants={itemVariants}
+            exit={{ opacity: 0, scale: 0.8, x: -20, transition: { duration: 0.2 } }}
+            className="p-5 rounded-3xl glass-card group relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl pointer-events-none" />
+            <div className="flex justify-between items-start mb-3 relative z-10">
+              <div className="flex gap-2 flex-wrap">
+                {activity.is_repetition && (
+                  <span className="text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-primary/20 text-primary border border-primary/30 shadow-[0_0_10px_rgba(168,85,247,0.3)]">
+                    Ripetizione
+                  </span>
+                )}
+                {activity.is_exercise && (
+                  <span className="text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-accent/20 text-accent border border-accent/30 shadow-[0_0_10px_rgba(163,230,53,0.3)]">
+                    Esercizi
+                  </span>
+                )}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive-foreground hover:bg-destructive rounded-full transition-all shadow-lg"
+                onClick={() => handleDelete(activity.id)}
+                disabled={isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+            <h3 className="font-extrabold text-xl text-foreground mb-1 mt-1 relative z-10 tracking-tight">{activity.subject}</h3>
+            {activity.notes && (
+              <p className="text-sm text-foreground/70 mt-2 line-clamp-3 leading-relaxed relative z-10">
+                {activity.notes}
+              </p>
+            )}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
+</file>
+
+<file path="src/app/(dashboard)/dashboard/calendar-dashboard.tsx">
+'use client'
+
+import { useState } from 'react'
+import { Activity } from '@/types/index'
+import { Button } from '@/components/ui/button'
+import { ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
+import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from 'date-fns'
+import { it } from 'date-fns/locale'
+import ActivityDetailsDialog from '@/components/activity-details-dialog'
+
+export default function CalendarDashboard({ initialActivities }: { initialActivities: Activity[] }) {
+  const [currentWeekStart, setCurrentWeekStart] = useState(
+    startOfWeek(new Date(), { weekStartsOn: 1 })
+  )
+  const [selectedEvent, setSelectedEvent] = useState<Activity | null>(null)
+
+  const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i))
+  const hours = Array.from({ length: 24 }).map((_, i) => `${i.toString().padStart(2, '0')}:00`)
+
+  const handlePrevWeek = () => setCurrentWeekStart(prev => subWeeks(prev, 1))
+  const handleNextWeek = () => setCurrentWeekStart(prev => addWeeks(prev, 1))
+  const handleToday = () => setCurrentWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
+
+  const getActivityStyle = (activity: Activity) => {
+    if (!activity.time_start || !activity.time_end) return { display: 'none' }
+
+    const parseTime = (timeStr: string) => {
+      const [h, m] = timeStr.split(':').map(Number)
+      return h + (m || 0) / 60
+    }
+
+    // RIMOSSO IL BUFFER DI 30px! Ora tutto si allinea matematicamente allo 0
+    const top = parseTime(activity.time_start) * 60
+    const bottom = parseTime(activity.time_end) * 60
+    const height = Math.max(bottom - top, 20)
+
+    return {
+      top: `${top}px`,
+      height: `${height}px`,
+    }
+  }
+
+  return (
+    <div className="w-full h-full flex flex-col relative gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between z-10 shrink-0 px-1">
+        <h2 className="text-xl md:text-3xl font-bold capitalize tracking-tight text-foreground drop-shadow-md">
+          {format(weekDays[0], 'd MMM', { locale: it })} - {format(weekDays[6], 'd MMM yyyy', { locale: it })}
+        </h2>
+        <div className="flex items-center gap-2 mt-3 sm:mt-0 w-full sm:w-auto justify-between sm:justify-end">
+          <Button variant="outline" size="sm" onClick={handleToday} className="bg-card/30 backdrop-blur-md border-border hover:bg-accent hover:text-accent-foreground font-semibold rounded-lg h-9 md:h-10 px-4 shadow-lg shadow-black/10 text-foreground">
+            Oggi
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={handlePrevWeek} className="bg-card/30 backdrop-blur-md border-border hover:bg-accent hover:text-accent-foreground rounded-lg h-9 w-9 md:h-10 md:w-10 text-foreground shadow-lg shadow-black/10">
+              <ChevronLeft className="h-4 w-4 md:h-5 md:w-5" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={handleNextWeek} className="bg-card/30 backdrop-blur-md border-border hover:bg-accent hover:text-accent-foreground rounded-lg h-9 w-9 md:h-10 md:w-10 text-foreground shadow-lg shadow-black/10">
+              <ChevronRight className="h-4 w-4 md:h-5 md:w-5" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Contenitore Griglia in stile Glassmorphism */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative z-10 border border-border rounded-xl md:rounded-3xl bg-background/40 backdrop-blur-2xl shadow-2xl shadow-black/20">
+
+        <div className="grid grid-cols-[35px_repeat(7,minmax(0,1fr))] md:grid-cols-[60px_repeat(7,minmax(0,1fr))] w-full">
+
+          {/* Angolo in alto a sx fisso */}
+          <div className="sticky top-0 left-0 z-50 bg-background/60 backdrop-blur-xl border-b border-r border-border" />
+
+          {/* Intestazione Giorni */}
+          {weekDays.map(day => {
+            const isToday = isSameDay(day, new Date())
+            return (
+              <div key={day.toISOString()} className={`sticky top-0 z-40 bg-background/60 backdrop-blur-xl border-b border-r border-border/50 p-1 md:p-3 text-center transition-colors ${isToday ? 'bg-primary/10 border-primary/20' : ''}`}>
+                <p className={`text-[9px] md:text-xs uppercase font-bold tracking-wider ${isToday ? 'text-primary' : 'text-muted-foreground'}`}>
+                  <span className="md:hidden">{format(day, 'eeeee', { locale: it })}</span>
+                  <span className="hidden md:inline">{format(day, 'EEE', { locale: it })}</span>
+                </p>
+                <p className={`text-sm md:text-2xl font-semibold mt-0 md:mt-0.5 ${isToday ? 'text-foreground' : 'text-foreground/80'}`}>
+                  {format(day, 'd')}
+                </p>
+              </div>
+            )
+          })}
+
+          {/* Corpo del Calendario */}
+          <div className="relative col-span-full grid grid-cols-[35px_repeat(7,minmax(0,1fr))] md:grid-cols-[60px_repeat(7,minmax(0,1fr))] h-[1440px]">
+
+            {/* 24 Linee Orizzontali (da 0 a 23) */}
+            {hours.map((hour, i) => (
+              <div key={hour} className="col-span-full border-t border-border/50 absolute w-full" style={{ top: `${i * 60}px` }} />
+            ))}
+
+            {/* Colonna Orari Sticky a sinistra */}
+            <div className="sticky left-0 border-r border-border bg-background/40 backdrop-blur-xl z-30">
+              {hours.map((hour, i) => (
+                <div
+                  key={hour}
+                  className="absolute w-full text-right pr-1 md:pr-2 text-[8px] md:text-[10px] font-semibold text-muted-foreground select-none"
+                  style={{ top: `${i * 60}px`, paddingTop: '4px' }}
+                >
+                  {hour}
+                </div>
+              ))}
+            </div>
+
+            {/* Colonne dei Giorni con Attività */}
+            {weekDays.map((day, dayIndex) => {
+              const dayActivities = initialActivities.filter(a => isSameDay(new Date(a.date), day) && a.time_start && a.time_end)
+
+              return (
+                <div key={dayIndex} className="relative border-r border-border/50 last:border-r-0">
+                  {dayActivities.map(activity => (
+                    <div
+                      key={activity.id}
+                      onClick={() => setSelectedEvent(activity)}
+                      className={`absolute left-0.5 right-0.5 md:left-1.5 md:right-1.5 rounded-md md:rounded-lg p-1.5 md:p-2.5 overflow-hidden border transition-all cursor-pointer shadow-lg 
+                        ${activity.is_completed 
+                          ? 'opacity-60 grayscale bg-card/40 border-border/50 text-muted-foreground' 
+                          : 'hover:z-[100] ' + (
+                            activity.is_repetition ? 'bg-primary/20 backdrop-blur-md border-primary/30 text-primary-50 hover:bg-primary/30 hover:border-primary/50' :
+                            activity.is_exercise ? 'bg-accent/20 backdrop-blur-md border-accent/30 text-accent hover:bg-accent/30 hover:border-accent/50' :
+                              'bg-card/60 backdrop-blur-md border-border text-foreground hover:bg-card/80'
+                          )
+                        }`}
+                      style={getActivityStyle(activity)}
+                    >
+                      <h4 className={`font-bold text-[8px] md:text-xs tracking-tight leading-tight truncate md:line-clamp-2 md:whitespace-normal drop-shadow-sm flex items-start gap-1`}>
+                        {activity.is_completed && <CheckCircle2 className="w-3 h-3 md:w-3.5 md:h-3.5 shrink-0 text-emerald-500 mt-0.5" />}
+                        <span className={activity.is_completed ? 'line-through' : ''}>{activity.subject}</span>
+                      </h4>
+                      <p className="hidden md:block text-[9px] opacity-80 mt-1 font-medium">
+                        {activity.time_start} - {activity.time_end}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <ActivityDetailsDialog 
+        activity={selectedEvent} 
+        open={!!selectedEvent} 
+        onClose={() => setSelectedEvent(null)} 
+      />
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/(dashboard)/dashboard/page.tsx">
+import { createClient } from '@/utils/supabase/server'
+import { redirect } from 'next/navigation'
+import CalendarDashboard from './calendar-dashboard'
+import { Activity } from '@/types/index'
+
+export default async function DashboardPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: activities } = await supabase
+    .from('activities')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('date', { ascending: true })
+
+  return (
+    <CalendarDashboard initialActivities={(activities as Activity[]) || []} />
+  )
+}
+</file>
+
+<file path="src/app/(dashboard)/layout.tsx">
+import NavBar from '@/components/nav-bar'
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div className="h-[100dvh] bg-background flex flex-col w-full overflow-hidden text-foreground relative">
+
+      {/* Sfondo in stile Login Page (Globi luminosi e Grid Pattern) */}
+      <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-primary/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 animate-pulse-slow pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-accent/20 rounded-full mix-blend-multiply dark:mix-blend-screen filter blur-[120px] opacity-40 pointer-events-none" />
+      <div className="absolute inset-0 bg-black/5 dark:bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,black,transparent)] dark:[mask-image:linear-gradient(180deg,white,transparent)] opacity-20 pointer-events-none" />
+
+      {/* Z-index 50 per mantenere la navbar sopra a tutto */}
+      <div className="relative z-50">
+        <NavBar />
+      </div>
+
+      {/* Contenuto principale */}
+      <main className="flex-1 w-full flex flex-col max-w-7xl mx-auto pt-24 pb-4 px-2 md:px-6 min-h-0 relative z-10">
+        {children}
+      </main>
+
+      {/* Footer reso super Glassmorphic */}
+      <footer className="h-12 border-t border-border bg-background/40 backdrop-blur-2xl flex items-center justify-center text-muted-foreground text-xs font-medium z-40 shrink-0 relative">
+        <p>© {new Date().getFullYear()} Active Recall. Sviluppato per lo studio intelligente.</p>
+      </footer>
+    </div>
+  )
+}
+</file>
+
+<file path="src/app/actions/activities.ts">
+'use server'
+
+import { createClient } from '@/utils/supabase/server'
+import { revalidatePath } from 'next/cache'
+
+export async function addActivity(formData: FormData) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  if (!user) {
+    throw new Error('Not authenticated')
+  }
+
+  const dateFrom = formData.get('dateFrom') as string
+  const time_start = formData.get('time_start') as string || null
+  const time_end = formData.get('time_end') as string || null
+  const subject = formData.get('subject') as string
+  const is_repetition = formData.get('is_repetition') === 'on'
+  const is_exercise = formData.get('is_exercise') === 'on'
+  const notes = formData.get('notes') as string
+  const recurrence = formData.get('recurrence') as string || 'nessuna'
+  const repetitionsStr = formData.get('repetitions') as string
+  const repetitions = repetitionsStr ? parseInt(repetitionsStr, 10) : 1
+
+  const baseDate = new Date(dateFrom)
+  const activitiesToInsert = []
+
+  const series_id = recurrence !== 'nessuna' && repetitions > 1 ? crypto.randomUUID() : null
+
+  const createRecord = (targetDate: Date) => ({
+    user_id: user.id,
+    date: targetDate.toISOString().split('T')[0],
+    time_start,
+    time_end,
+    subject,
+    is_repetition,
+    is_exercise,
+    notes: notes || null,
+    series_id
+  })
+
+  // Generiamo le attività in base alla ricorsività
+  if (recurrence === 'nessuna' || repetitions <= 1) {
+    activitiesToInsert.push(createRecord(baseDate))
+  } else {
+    let current = new Date(baseDate)
+
+    for (let i = 0; i < repetitions; i++) {
+      activitiesToInsert.push(createRecord(new Date(current)))
+      
+      if (recurrence === 'giornaliera') {
+        current.setDate(current.getDate() + 1)
+      } else if (recurrence === 'settimanale') {
+        current.setDate(current.getDate() + 7)
+      } else if (recurrence === 'mensile') {
+        current.setMonth(current.getMonth() + 1)
+      } else if (recurrence === 'annuale') {
+        current.setFullYear(current.getFullYear() + 1)
+      } else {
+        break // Fallback
+      }
+    }
+  }
+
+  const { error } = await supabase.from('activities').insert(activitiesToInsert)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+
+export async function editActivity(id: string, formData: FormData) {
+  const supabase = await createClient()
+  
+  const dateFrom = formData.get('dateFrom') as string
+  const time_start = formData.get('time_start') as string || null
+  const time_end = formData.get('time_end') as string || null
+  const subject = formData.get('subject') as string
+  const is_repetition = formData.get('is_repetition') === 'on'
+  const is_exercise = formData.get('is_exercise') === 'on'
+  const notes = formData.get('notes') as string
+
+  const { error } = await supabase.from('activities').update({
+    date: dateFrom,
+    time_start,
+    time_end,
+    subject,
+    is_repetition,
+    is_exercise,
+    notes: notes || null
+  }).eq('id', id)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+
+export async function deleteActivity(idOrIds: string | string[], isSeries: boolean = false) {
+  const supabase = await createClient()
+  
+  if (isSeries && typeof idOrIds === 'string') {
+    const { error } = await supabase.from('activities').delete().eq('series_id', idOrIds)
+    if (error) throw new Error(error.message)
+  } else {
+    const idsArray = Array.isArray(idOrIds) ? idOrIds : [idOrIds]
+    const { error } = await supabase.from('activities').delete().in('id', idsArray)
+    if (error) throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+
+export async function toggleActivityCompletion(id: string, is_completed: boolean) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('activities').update({ is_completed }).eq('id', id)
+  
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+
+export async function updateActivityNotes(id: string, notes: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.from('activities').update({ notes }).eq('id', id)
+  
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+</file>
+
+<file path="src/app/actions/profile.ts">
+'use server'
+
+import { createClient } from '@/utils/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+
+export async function updateProfile(data: { first_name: string; last_name: string; birth_date: string; username: string }) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Utente non autenticato" }
+
+  const { error } = await supabase.from('profiles').update(data).eq('id', user.id)
+  if (error) return { error: error.message }
+  
+  // Update auth metadata per riflettere subito i cambiamenti
+  await supabase.auth.updateUser({
+    data: {
+      full_name: `${data.first_name} ${data.last_name}`,
+      first_name: data.first_name,
+      last_name: data.last_name,
+      username: data.username,
+      birth_date: data.birth_date
+    }
+  })
+
+  revalidatePath('/', 'layout')
+  return { success: true }
+}
+
+export async function updateEmail(newEmail: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.auth.updateUser({ email: newEmail })
+  if (error) return { error: error.message }
+  return { success: true }
+}
+
+export async function updatePassword(newPassword: string) {
+  const supabase = await createClient()
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { error: error.message }
+  
+  // Note: changing password automatically invalidates other sessions in Supabase Auth.
+  return { success: true }
+}
+
+export async function deactivateAccount() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Utente non autenticato" }
+
+  const { error } = await supabase.from('profiles').update({ is_active: false }).eq('id', user.id)
+  if (error) return { error: error.message }
+
+  await supabase.auth.signOut()
+  return { success: true }
+}
+
+export async function deleteAccount() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: "Utente non autenticato" }
+
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!serviceRoleKey) return { error: "SUPABASE_SERVICE_ROLE_KEY non configurata sul server" }
+
+  const adminAuthClient = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceRoleKey,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  )
+
+  // Explicit hard delete from auth.users (cascades to profiles table via FK constraints)
+  const { error } = await adminAuthClient.auth.admin.deleteUser(user.id)
+  if (error) return { error: error.message }
+  
+  await supabase.auth.signOut()
+  return { success: true }
+}
+</file>
+
+<file path="src/app/api/cron/reminders/route.ts">
+import { NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
+
+export async function GET(request: Request) {
+  // Protect this route with a secret key
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Here we use the Service Role Key to bypass RLS and fetch all users' data
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+
+  const today = new Date().toISOString().split('T')[0]
+
+  // Fetch activities scheduled for today that are marked as repetitions
+  const { data: activities, error } = await supabaseAdmin
+    .from('activities')
+    .select('*')
+    .eq('date', today)
+    .eq('is_repetition', true)
+
+  if (error) {
+    console.error('Error fetching activities:', error)
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  const usersToRemind = new Map<string, any[]>()
+  
+  activities?.forEach((act) => {
+    const userList = usersToRemind.get(act.user_id) || []
+    userList.push(act)
+    usersToRemind.set(act.user_id, userList)
+  })
+
+  // Mock sending emails
+  console.log(`Sending reminders for ${usersToRemind.size} users today...`)
+  usersToRemind.forEach((acts, userId) => {
+    console.log(`User ${userId} has ${acts.length} repitions scheduled for today.`)
+    // TODO: implement Resend or preferred Email provider here
+  })
+
+  return NextResponse.json({ success: true, count: activities?.length || 0 })
+}
+</file>
+
+<file path="src/components/activity-details-dialog.tsx">
+'use client'
+
+import { useState, useEffect, useTransition } from 'react'
+import { createPortal } from 'react-dom'
+import { Activity } from '@/types/index'
+import { Button } from '@/components/ui/button'
+import { format } from 'date-fns'
+import { it } from 'date-fns/locale'
+import { X, Calendar as CalendarIcon, Clock, Edit2, Trash2, CheckCircle2, RotateCcw, AlertTriangle, FileText } from 'lucide-react'
+import { toggleActivityCompletion, updateActivityNotes, deleteActivity } from '@/app/actions/activities'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Textarea } from '@/components/ui/textarea'
+
+export default function ActivityDetailsDialog({
+  activity, open, onClose
+}: {
+  activity: Activity | null, open: boolean, onClose: () => void
+}) {
+  const [view, setView] = useState<'view' | 'edit-notes' | 'delete'>('view')
+  const [mounted, setMounted] = useState(false)
+  const [isPending, startTransition] = useTransition()
+  const [notes, setNotes] = useState('')
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (activity && open) {
+      setView('view')
+      setNotes(activity.notes || '')
+    }
+  }, [activity, open])
+
+  if (!mounted) return null
+
+  const springConfig = { type: "spring" as const, bounce: 0.15, duration: 0.4 }
+
+  const handleClose = () => {
+    if (isPending) return
+    onClose()
+  }
+
+  const handleToggleCompletion = () => {
+    if (!activity) return
+    startTransition(async () => {
+      await toggleActivityCompletion(activity.id, !activity.is_completed)
+      onClose()
+    })
+  }
+
+  const handleSaveNotes = () => {
+    if (!activity) return
+    startTransition(async () => {
+      await updateActivityNotes(activity.id, notes)
+      setView('view')
+    })
+  }
+
+  const handleDelete = (deleteSeries: boolean) => {
+    if (!activity) return
+    startTransition(async () => {
+      if (deleteSeries && activity.series_id) {
+        await deleteActivity(activity.series_id, true)
+      } else {
+        await deleteActivity(activity.id)
+      }
+      onClose()
+    })
+  }
+
+  const renderContent = () => {
+    if (!activity) return null
+
+    if (view === 'edit-notes') {
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center gap-3 mb-2 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setView('view')} className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full px-4">
+              ← Indietro
+            </Button>
+            <h3 className="text-xl font-semibold text-foreground">Modifica Note</h3>
+          </div>
+          <Textarea 
+            value={notes} 
+            onChange={(e) => setNotes(e.target.value)} 
+            placeholder="Scrivi qui i tuoi appunti..." 
+            className="min-h-[150px] bg-background/50 border-border rounded-xl focus-visible:ring-primary text-sm text-foreground resize-none"
+          />
+          <Button 
+            onClick={handleSaveNotes} 
+            disabled={isPending} 
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold transition-transform active:scale-95"
+          >
+            {isPending ? 'Salvataggio...' : 'Salva Note'}
+          </Button>
+        </div>
+      )
+    }
+
+    if (view === 'delete') {
+      return (
+        <div className="flex flex-col gap-4 items-center text-center py-4">
+          <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center mb-2">
+            <AlertTriangle className="w-8 h-8 text-red-500" />
+          </div>
+          <h3 className="text-xl font-bold text-foreground">Sei sicuro?</h3>
+          <p className="text-sm text-muted-foreground mb-4">L'eliminazione è irreversibile.</p>
+          
+          <div className="flex flex-col gap-3 w-full">
+            {activity.series_id ? (
+              <>
+                <Button 
+                  variant="outline" 
+                  onClick={() => handleDelete(false)} 
+                  disabled={isPending} 
+                  className="w-full h-12 rounded-xl bg-card/50 hover:bg-destructive/20 hover:text-destructive border-border hover:border-destructive/30 text-foreground font-medium transition-colors"
+                >
+                  Elimina solo questa sessione
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  onClick={() => handleDelete(true)} 
+                  disabled={isPending} 
+                  className="w-full h-12 rounded-xl font-bold transition-colors"
+                >
+                  Elimina intera serie
+                </Button>
+              </>
+            ) : (
+              <Button 
+                variant="destructive" 
+                onClick={() => handleDelete(false)} 
+                disabled={isPending} 
+                className="w-full h-12 rounded-xl font-bold transition-colors"
+              >
+                Elimina sessione
+              </Button>
+            )}
+            <Button 
+              variant="ghost" 
+              onClick={() => setView('view')} 
+              disabled={isPending} 
+              className="w-full h-12 rounded-xl text-muted-foreground hover:text-foreground mt-2 transition-colors hover:bg-accent"
+            >
+              Annulla
+            </Button>
+          </div>
+        </div>
+      )
+    }
+
+    // View mode
+    return (
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2 mb-2">
+            {activity.is_repetition && (
+              <span className="inline-flex items-center rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 ring-1 ring-inset ring-primary/30">
+                Ripetizione
+              </span>
+            )}
+            {activity.is_exercise && (
+              <span className="inline-flex items-center rounded-md bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent ring-1 ring-inset ring-accent/30">
+                Esercizi
+              </span>
+            )}
+          </div>
+          <h2 className={`text-2xl md:text-3xl font-bold tracking-tight text-foreground transition-all ${activity.is_completed ? 'line-through opacity-40' : ''}`}>
+            {activity.subject}
+          </h2>
+          <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground font-medium">
+            <div className="flex items-center gap-1.5 p-2 rounded-lg bg-card/40 border border-border/50">
+              <CalendarIcon className="w-4 h-4 text-primary" />
+              {format(new Date(activity.date), 'dd MMMM yyyy', { locale: it })}
+            </div>
+            {activity.time_start && activity.time_end && (
+               <div className="flex items-center gap-1.5 p-2 rounded-lg bg-card/40 border border-border/50">
+                 <Clock className="w-4 h-4 text-accent" />
+                 {activity.time_start} - {activity.time_end}
+               </div>
+            )}
+          </div>
+        </div>
+
+        {notes && (
+          <div className="p-4 rounded-xl bg-card/40 border border-border/50 relative group">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+              <FileText className="w-3.5 h-3.5" /> Note
+            </h4>
+            <p className="text-sm text-foreground whitespace-pre-wrap">{notes}</p>
+            <Button 
+              size="icon" 
+              variant="ghost" 
+              onClick={() => setView('edit-notes')} 
+              className="absolute top-2 right-2 w-8 h-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground hover:bg-accent"
+            >
+              <Edit2 className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+
+        {!notes && (
+          <Button 
+            variant="outline" 
+            onClick={() => setView('edit-notes')}
+            className="w-full h-10 border-dashed border-border/50 bg-card/20 text-muted-foreground hover:text-foreground hover:bg-card/40 transition-colors"
+          >
+            + Aggiungi note
+          </Button>
+        )}
+
+        <div className="flex flex-col gap-3 mt-2">
+          <Button
+            onClick={handleToggleCompletion}
+            disabled={isPending}
+            variant={activity.is_completed ? "outline" : "default"}
+            className={`w-full h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-95 ${
+              activity.is_completed 
+                ? 'bg-card/50 border-border text-foreground hover:bg-accent hover:text-accent-foreground' 
+                : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20'
+            }`}
+          >
+            {activity.is_completed ? (
+              <>
+                <RotateCcw className="w-5 h-5" /> Ripristina Sessione
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-5 h-5" /> Segna come Completato
+              </>
+            )}
+          </Button>
+          
+          <div className="flex w-full gap-3">
+             <Button 
+               onClick={() => setView('edit-notes')} 
+               variant="outline" 
+               className="flex-1 h-12 rounded-xl bg-card/50 border border-border hover:bg-accent font-medium text-sm flex items-center justify-center gap-2 text-foreground transition-transform active:scale-95"
+             >
+               <Edit2 className="w-4 h-4" /> NOTE
+             </Button>
+             <Button 
+               onClick={() => setView('delete')} 
+               variant="outline" 
+               className="flex-1 h-12 rounded-xl bg-card/50 border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 font-medium text-sm flex items-center justify-center gap-2 text-foreground transition-transform active:scale-95"
+             >
+               <Trash2 className="w-4 h-4" /> ELIMINA
+             </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { delay: 0.2, duration: 0.2 } }}
+            onClick={handleClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+
+          <motion.div
+            layout
+            initial={{ scale: 0.95, opacity: 0, y: 15 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 15, transition: { delay: 0.2, duration: 0.2 } }}
+            transition={{ layout: springConfig, default: { duration: 0.3 } }}
+            className="rounded-[2rem] p-5 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
+          >
+            <button onClick={handleClose} disabled={isPending} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20">
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex w-full flex-1 items-center justify-center relative">
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={view + (activity?.id || '')}
+                  layout
+                  variants={{
+                    hidden: { opacity: 0, scale: 0.9, filter: 'blur(10px)' },
+                    visible: { 
+                      opacity: 1, 
+                      scale: 1, 
+                      filter: 'blur(0px)',
+                      transition: { ...springConfig, delay: 0.1 }
+                    },
+                    exit: { 
+                      opacity: 0, 
+                      scale: 0.9, 
+                      filter: 'blur(10px)',
+                      transition: { duration: 0.2, ease: "easeIn" }
+                    }
+                  }}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="w-full flex flex-col justify-center origin-center"
+                >
+                  {renderContent()}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+}
+</file>
+
+<file path="src/components/activity-form.tsx">
+'use client'
+
+import { addActivity, editActivity } from '@/app/actions/activities'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { useTransition, useState } from 'react'
+import { motion } from 'framer-motion'
+import { Activity } from '@/types'
+
+const AnimatedCheckbox = ({ id, name, defaultChecked = false, label }: { id: string, name: string, defaultChecked?: boolean, label: string }) => {
+  const [checked, setChecked] = useState(defaultChecked)
+  return (
+    <div className="flex items-center space-x-3 cursor-pointer group" onClick={() => setChecked(!checked)}>
+      <input type="checkbox" id={id} name={name} checked={checked} readOnly className="hidden" />
+      <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors border ${checked ? 'bg-primary border-primary' : 'border-border group-hover:border-primary bg-card text-foreground'}`}>
+        <motion.svg
+          initial={false}
+          animate={{ opacity: checked ? 1 : 0, scale: checked ? 1 : 0.5 }}
+          className="w-3.5 h-3.5 text-background"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+        >
+          <motion.path
+            initial={{ pathLength: 0 }}
+            animate={{ pathLength: checked ? 1 : 0 }}
+            transition={{ type: "spring", bounce: 0.2, duration: 0.4 }}
+            d="M20 6L9 17l-5-5"
+          />
+        </motion.svg>
+      </div>
+      <Label htmlFor={id} className="text-sm font-medium cursor-pointer select-none text-foreground">{label}</Label>
+    </div>
+  )
+}
+
+export default function ActivityFormDialog({ initialData, onSuccess, onBack }: { initialData?: Activity | null, onSuccess: () => void, onBack: () => void }) {
+  const [isPending, startTransition] = useTransition()
+  const [recurrence, setRecurrence] = useState('nessuna')
+  const [timeStart, setTimeStart] = useState(initialData?.time_start || '')
+  const [timeEnd, setTimeEnd] = useState(initialData?.time_end || '')
+
+  const isTimeValid = !timeStart || !timeEnd || timeStart < timeEnd
+
+  const handleSubmit = (formData: FormData) => {
+    if (!isTimeValid) return
+
+    startTransition(async () => {
+      if (initialData) {
+        await editActivity(initialData.id, formData)
+      } else {
+        await addActivity(formData)
+      }
+      onSuccess()
+    })
+  }
+
+  return (
+    <div className="flex flex-col w-full max-h-[80vh]">
+      <div className="flex items-center gap-3 mb-6 shrink-0">
+        <Button variant="ghost" size="sm" onClick={onBack} className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full px-4">
+          ← Indietro
+        </Button>
+        <h2 className="text-xl font-semibold text-foreground">
+          {initialData ? 'Modifica' : 'Nuova Sessione'}
+        </h2>
+      </div>
+
+      <form action={handleSubmit} className="flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2 pb-2">
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="subject" className="text-xs text-muted-foreground">Argomento</Label>
+          <Input id="subject" name="subject" defaultValue={initialData?.subject || ''} required placeholder="Es. Anatomia - Sistema Nervoso" className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground" />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="dateFrom" className="text-xs text-muted-foreground">Data</Label>
+            <Input type="date" id="dateFrom" name="dateFrom" required defaultValue={initialData?.date || ''} min={new Date().toISOString().split('T')[0]} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground block" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-3">
+              <div className="flex flex-col gap-2 w-full">
+                <Label htmlFor="time_start" className="text-xs text-muted-foreground">Inizio</Label>
+                <Input type="time" id="time_start" name="time_start" required value={timeStart} onChange={(e) => setTimeStart(e.target.value)} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground block" />
+              </div>
+              <div className="flex flex-col gap-2 w-full">
+                <Label htmlFor="time_end" className="text-xs text-muted-foreground">Fine</Label>
+                <Input type="time" id="time_end" name="time_end" required value={timeEnd} onChange={(e) => setTimeEnd(e.target.value)} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground block" />
+              </div>
+            </div>
+            {!isTimeValid && (
+              <p className="text-xs text-destructive font-medium">L'orario di fine deve essere successivo all'inizio.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-6 p-4 rounded-xl bg-card/50 border border-border/50">
+          <AnimatedCheckbox id="is_repetition" name="is_repetition" defaultChecked={initialData ? initialData.is_repetition : true} label="Ripetizione" />
+          <AnimatedCheckbox id="is_exercise" name="is_exercise" defaultChecked={initialData?.is_exercise} label="Esercizi" />
+        </div>
+
+        {!initialData && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="recurrence" className="text-xs text-muted-foreground">Ricorsività</Label>
+              <Select name="recurrence" required value={recurrence} onValueChange={(val) => setRecurrence(val || 'nessuna')}>
+                <SelectTrigger className="bg-background/50 border-border rounded-xl h-11 text-sm text-foreground">
+                  <SelectValue placeholder="Seleziona..." />
+                </SelectTrigger>
+                <SelectContent className="border-border rounded-xl z-[300] bg-popover/95 backdrop-blur-xl text-foreground">
+                  <SelectItem value="nessuna">Evento Singolo</SelectItem>
+                  <SelectItem value="giornaliera">Giornaliera</SelectItem>
+                  <SelectItem value="settimanale">Settimanale</SelectItem>
+                  <SelectItem value="mensile">Mensile</SelectItem>
+                  <SelectItem value="annuale">Annuale</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {recurrence !== 'nessuna' && (
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col gap-2">
+                <Label htmlFor="repetitions" className="text-xs text-muted-foreground">Numero di ripetizioni</Label>
+                <Input type="number" id="repetitions" name="repetitions" min="1" required defaultValue="10" className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground block" />
+              </motion.div>
+            )}
+          </div>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="notes" className="text-xs text-muted-foreground">Note</Label>
+          <Textarea id="notes" name="notes" defaultValue={initialData?.notes || ''} placeholder="Appunti, link..." className="resize-none bg-background/50 border-border rounded-xl focus-visible:ring-primary min-h-[80px] text-sm text-foreground" />
+        </div>
+
+        <Button type="submit" disabled={isPending || !isTimeValid} className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base transition-transform hover:scale-[1.02] active:scale-95 mt-2 shrink-0">
+          {isPending ? 'Salvataggio...' : 'Conferma'}
+        </Button>
+      </form>
+    </div>
+  )
+}
+</file>
+
+<file path="src/components/activity-manager-button.tsx">
+'use client'
+
+import { useState } from 'react'
+import { Activity } from '@/types/index'
+import ActivityManagerDialog from './activity-manager-dialog'
+import { Button } from '@/components/ui/button'
+import { Settings2 } from 'lucide-react'
+
+export default function ActivityManagerButton({ activities }: { activities: Activity[] }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <Button 
+        onClick={() => setOpen(true)}
+        className="bg-primary/20 hover:bg-primary text-primary hover:text-primary-foreground rounded-[1rem] transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_20px_rgba(168,85,247,0.6)] font-black text-xs md:text-sm tracking-widest px-4 md:px-6 h-10 md:h-12"
+      >
+        <Settings2 className="w-4 h-4 mr-2" />
+        <span className="hidden sm:inline">GESTIONE ATTIVITÀ</span>
+      </Button>
+      <ActivityManagerDialog open={open} onOpenChange={setOpen} activities={activities} />
+    </>
+  )
+}
+</file>
+
+<file path="src/components/activity-manager-dialog.tsx">
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { Activity } from '@/types/index'
+import { Button } from '@/components/ui/button'
+import { format } from 'date-fns'
+import { it } from 'date-fns/locale'
+import { Edit2, Plus, Trash2, Calendar as CalendarIcon, Search, X } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { deleteActivity } from '@/app/actions/activities'
+import ActivityFormDialog from './activity-form'
+import { motion, AnimatePresence } from 'framer-motion'
+
+export default function ActivityManagerDialog({
+  activities, open, onOpenChange
+}: {
+  activities: Activity[], open: boolean, onOpenChange: (open: boolean) => void
+}) {
+  const [view, setView] = useState<'menu' | 'add' | 'edit-list' | 'delete-list'>('menu')
+  const [search, setSearch] = useState('')
+  const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  const handleClose = () => {
+    setView('menu')
+    setSelectedActivity(null)
+    onOpenChange(false)
+  }
+
+  if (!mounted) return null
+
+  const filteredActivities = activities
+    .filter(a => a.subject.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const groupedActivities = useMemo(() => {
+    const groups = new Map<string, Activity[]>()
+    const singles: Activity[] = []
+
+    filteredActivities.forEach(act => {
+      if (act.series_id) {
+        if (!groups.has(act.series_id)) {
+          groups.set(act.series_id, [])
+        }
+        groups.get(act.series_id)!.push(act)
+      } else {
+        singles.push(act)
+      }
+    })
+
+    const result = [
+      ...Array.from(groups.values()).map(group => {
+        const sortedGroup = group.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        return {
+          id: sortedGroup[0].series_id!,
+          isGroup: true,
+          subject: sortedGroup[0].subject,
+          count: group.length,
+          activities: sortedGroup,
+          firstDate: sortedGroup[0],
+        }
+      }),
+      ...singles.map(act => ({
+        id: act.id,
+        isGroup: false,
+        subject: act.subject,
+        count: 1,
+        activities: [act],
+        firstDate: act,
+      }))
+    ]
+
+    return result.sort((a, b) => new Date(b.firstDate.date).getTime() - new Date(a.firstDate.date).getTime())
+  }, [filteredActivities])
+
+  const layoutDuration = 0.4;
+  const exitDuration = 0.2;
+
+  const renderContent = () => {
+    if (view === 'add' || selectedActivity) {
+      return (
+        <ActivityFormDialog
+          initialData={selectedActivity}
+          onSuccess={handleClose}
+          onBack={() => {
+            setSelectedActivity(null)
+            setView('menu')
+          }}
+        />
+      )
+    }
+
+    if (view === 'edit-list' || view === 'delete-list') {
+      return (
+        <div className="flex flex-col h-[60vh] md:h-[500px]">
+          <div className="flex items-center gap-3 mb-6 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setView('menu')} className="text-muted-foreground hover:text-foreground hover:bg-accent rounded-full px-4">
+              ← Indietro
+            </Button>
+            <h3 className="text-xl font-semibold text-foreground">
+              {view === 'edit-list' ? 'Modifica' : 'Elimina'} Sessione
+            </h3>
+          </div>
+          <div className="relative mb-4 shrink-0">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Cerca per materia..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-11 bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-sm text-foreground"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-2 pr-2">
+            {groupedActivities.length === 0 ? (
+              <p className="text-center text-muted-foreground mt-10 font-medium text-sm">Nessuna attività trovata.</p>
+            ) : (
+              groupedActivities.map(group => (
+                <div
+                  key={group.id}
+                  className="p-3 md:p-4 rounded-xl flex items-center justify-between group-hover border border-border/50 bg-card/40 hover:bg-accent/80 hover:text-accent-foreground cursor-pointer transition-colors"
+                >
+                  <div>
+                    <h4 className="font-medium text-foreground text-sm tracking-tight">{group.subject}</h4>
+                    <div className="mt-1">
+                      {group.isGroup ? (
+                        <span className="inline-flex items-center rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 ring-1 ring-inset ring-primary/30">
+                          {group.count} sessioni programmate
+                        </span>
+                      ) : (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <CalendarIcon className="w-3 h-3" />
+                          {format(new Date(group.firstDate.date), 'dd MMM yyyy', { locale: it })}
+                          {group.firstDate.time_start && ` • ${group.firstDate.time_start} - ${group.firstDate.time_end}`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant={view === 'edit-list' ? 'secondary' : 'destructive'}
+                    className={`rounded-lg transition-colors h-9 w-9 shrink-0 ${view === 'delete-list' ? 'bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white' : 'bg-primary/10 text-primary hover:bg-primary hover:text-white'}`}
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (view === 'edit-list') {
+                        setSelectedActivity(group.activities[0])
+                      } else {
+                        await deleteActivity(group.activities.map(a => a.id))
+                      }
+                    }}
+                  >
+                    {view === 'edit-list' ? <Edit2 className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex flex-col items-center justify-center p-2 gap-4 w-full">
+        <h2 className="text-2xl font-semibold text-foreground text-center mb-4">Area Gestione</h2>
+        <Button onClick={() => setView('add')} className="w-full h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+          <Plus className="w-5 h-5" /> NUOVA SESSIONE
+        </Button>
+        <div className="flex w-full gap-3">
+          <Button onClick={() => setView('edit-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-accent text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+            <Edit2 className="w-4 h-4" /> MODIFICA
+          </Button>
+          <Button onClick={() => setView('delete-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+            <Trash2 className="w-4 h-4" /> ELIMINA
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { delay: exitDuration, duration: 0.2 } }}
+            onClick={handleClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+
+          <motion.div
+            layout // Il contenitore fa il morphing
+            initial={{ scale: 0.95, opacity: 0, y: 15 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 15, transition: { delay: exitDuration, duration: 0.2 } }}
+            transition={{ layout: { type: "spring", bounce: 0.1, duration: layoutDuration }, default: { duration: 0.3 } }}
+            className="rounded-[2rem] p-5 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
+          >
+            <button onClick={handleClose} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20">
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Contenitore di supporto per l'allineamento */}
+            <div className="flex w-full flex-1 items-center justify-center relative">
+
+              {/* Torniamo a popLayout per evitare i collassi a scatti del DOM */}
+              <AnimatePresence mode="popLayout" initial={false}>
+                <motion.div
+                  key={view + (selectedActivity?.id || '')}
+
+                  // IL SEGRETO È QUI: 
+                  // Dando 'layout' anche al figlio, Framer Motion aggiorna dinamicamente 
+                  // la sua posizione absolute mentre il padre si restringe, tenendolo perfettamente centrato!
+                  layout
+
+                  variants={{
+                    hidden: {
+                      opacity: 0,
+                      scale: 0.5,
+                      filter: 'blur(10px)'
+                    },
+                    visible: {
+                      opacity: 1,
+                      scale: 1,
+                      filter: 'blur(0px)',
+                      transition: {
+                        type: "spring",
+                        bounce: 0.5,
+                        duration: 0.5,
+                        delay: 0.15 // Aspetta che il padre abbia iniziato il morphing
+                      }
+                    },
+                    exit: {
+                      opacity: 0,
+                      scale: 0.4,
+                      filter: 'blur(10px)',
+                      transition: {
+                        duration: exitDuration,
+                        ease: "easeIn"
+                      }
+                    }
+                  }}
+                  initial="hidden"
+                  animate="visible"
+                  exit="exit"
+                  className="w-full flex flex-col justify-center origin-center"
+                >
+                  {renderContent()}
+                </motion.div>
+              </AnimatePresence>
+            </div>
+
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+}
+</file>
+
+<file path="src/components/nav-bar.tsx">
+import { createClient } from '@/utils/supabase/server'
+import { redirect } from 'next/navigation'
+import { CalendarDays } from 'lucide-react'
+import ActivityManagerButton from './activity-manager-button'
+import UserMenu from './user-menu'
+
+export default async function NavBar() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
+  let activities: any[] = []
+  if (user) {
+    const { data } = await supabase.from('activities').select('*')
+    if (data) activities = data
+  }
+
+  async function signOut() {
+    'use server'
+    const supabase = await createClient()
+    await supabase.auth.signOut()
+    redirect('/login')
+  }
+
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[95%] max-w-5xl">
+      {/* Sfondo più trasparente (40%) per far risaltare gli orb luminosi dietro */}
+      <nav className="rounded-full px-4 md:px-6 py-2.5 flex items-center justify-between border border-border/50 bg-background/40 backdrop-blur-3xl shadow-xl shadow-black/40">
+        <div className="flex items-center gap-3">
+          <CalendarDays className="h-5 w-5 md:h-6 md:w-6 text-primary drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
+          <span className="font-bold text-lg md:text-xl tracking-tight hidden sm:block text-foreground">Active Recall</span>
+        </div>
+        <div className="flex items-center gap-2 md:gap-4">
+          {user ? (
+            <>
+              <ActivityManagerButton activities={activities} />
+              <div className="h-6 w-px bg-border hidden md:block mx-1" />
+              <UserMenu user={user} signOutAction={signOut} />
+            </>
+          ) : null}
+        </div>
+      </nav>
+    </div>
+  )
+}
+</file>
+
+<file path="src/components/settings-dialog.tsx">
+'use client'
+
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
+import { useTransition } from 'react'
+import { updateProfile, updateEmail, updatePassword, deactivateAccount, deleteAccount } from '@/app/actions/profile'
+import { motion, AnimatePresence } from 'framer-motion'
+import { X, User, Sliders, Palette, Mail, Lock, ShieldAlert, AlertTriangle, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { useTheme } from 'next-themes'
+
+type Tab = 'profile' | 'preferences' | 'appearance'
+
+export default function SettingsDialog({
+  user, open, onClose
+}: {
+  user?: any; open: boolean; onClose: () => void
+}) {
+  const [mounted, setMounted] = useState(false)
+  const [activeTab, setActiveTab] = useState<Tab>('profile')
+  const { theme, setTheme } = useTheme()
+  const [isPending, startTransition] = useTransition()
+
+  // Profile Form State
+  const [profileData, setProfileData] = useState({
+    first_name: '', last_name: '', birth_date: '', username: ''
+  })
+  const [initialProfileData, setInitialProfileData] = useState(profileData)
+
+  const [emailFormOpen, setEmailFormOpen] = useState(false)
+  const [newEmail, setNewEmail] = useState('')
+
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [deleteUsername, setDeleteUsername] = useState('')
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    if (user && open) {
+      const initData = {
+        first_name: user.user_metadata?.first_name || '',
+        last_name: user.user_metadata?.last_name || '',
+        birth_date: user.user_metadata?.birth_date || '',
+        username: user.user_metadata?.username || ''
+      }
+      setProfileData(initData)
+      setInitialProfileData(initData)
+      
+      // Reset forms
+      setEmailFormOpen(false)
+      setPasswordFormOpen(false)
+      setDeleteConfirmOpen(false)
+      setNewEmail('')
+      setNewPassword('')
+      setDeleteUsername('')
+    }
+  }, [user, open])
+
+  if (!mounted) return null
+
+  const isProfileDirty = JSON.stringify(profileData) !== JSON.stringify(initialProfileData)
+
+  const handleSaveProfile = () => {
+    startTransition(async () => {
+      const res = await updateProfile(profileData)
+      if (res.success) {
+        setInitialProfileData(profileData)
+      } else {
+        alert(res.error)
+      }
+    })
+  }
+
+  const handleUpdateEmail = () => {
+    startTransition(async () => {
+      const res = await updateEmail(newEmail)
+      if (res.success) {
+        alert("Controlla la tua email per confermare l'aggiornamento.")
+        setEmailFormOpen(false)
+        setNewEmail('')
+      } else {
+        alert(res.error)
+      }
+    })
+  }
+
+  const handleUpdatePassword = () => {
+    startTransition(async () => {
+      const res = await updatePassword(newPassword)
+      if (res.success) {
+        alert("Password aggiornata con successo. Le altre sessioni sono state chiuse.")
+        setPasswordFormOpen(false)
+        setNewPassword('')
+      } else {
+        alert(res.error)
+      }
+    })
+  }
+
+  const handleDeactivate = () => {
+    if (confirm("Sei sicuro di voler disattivare temporaneamente il tuo account?")) {
+      startTransition(async () => {
+        await deactivateAccount()
+        // redirect handled natively or by reload
+      })
+    }
+  }
+
+  const handleDeleteAccount = () => {
+    if (deleteUsername !== profileData.username) return
+    startTransition(async () => {
+      const res = await deleteAccount()
+      if (res.error) {
+        alert(res.error)
+      }
+    })
+  }
+
+  const layoutDuration = 0.4;
+  const exitDuration = 0.15;
+  const springConfig = { type: "spring" as const, bounce: 0.15, duration: layoutDuration }
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'profile':
+        return (
+          <div className="flex flex-col gap-6 pb-24 h-full overflow-y-auto pr-2 custom-scrollbar">
+            <h3 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">Profilo</h3>
+            
+            <div className="flex flex-col gap-6">
+              {/* Avatar Section */}
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-card border border-border flex items-center justify-center shrink-0 overflow-hidden">
+                  {user?.user_metadata?.avatar_url ? (
+                    <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                  ) : (
+                    <User className="w-8 h-8 text-muted-foreground" />
+                  )}
+                </div>
+                <Button variant="outline" className="border-border bg-card/50 hover:bg-accent hover:text-accent-foreground text-foreground">
+                  Cambia Foto
+                </Button>
+              </div>
+
+              {/* Personal Info Form */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground">Nome</Label>
+                  <Input value={profileData.first_name} onChange={e => setProfileData({...profileData, first_name: e.target.value})} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-foreground" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground">Cognome</Label>
+                  <Input value={profileData.last_name} onChange={e => setProfileData({...profileData, last_name: e.target.value})} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-foreground" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground">Username</Label>
+                  <Input value={profileData.username} onChange={e => setProfileData({...profileData, username: e.target.value})} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-foreground" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label className="text-muted-foreground">Data di Nascita</Label>
+                  <Input type="date" value={profileData.birth_date} onChange={e => setProfileData({...profileData, birth_date: e.target.value})} className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 text-foreground [&::-webkit-calendar-picker-indicator]:dark:invert" />
+                </div>
+              </div>
+
+              <div className="h-px bg-border/50 my-2" />
+
+              {/* Security */}
+              <h4 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-primary" /> Sicurezza
+              </h4>
+              <div className="flex flex-col gap-3">
+                <div className="p-4 rounded-xl border border-border bg-card/30 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-foreground">Email Associata</span>
+                      <span className="text-sm text-muted-foreground">{user?.email}</span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setEmailFormOpen(!emailFormOpen)} className="h-9">Modifica Email</Button>
+                  </div>
+                  
+                  <AnimatePresence>
+                    {emailFormOpen && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="pt-2 flex flex-col gap-2">
+                          <Input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="Nuova email" className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11" />
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setEmailFormOpen(false)}>Annulla</Button>
+                            <Button size="sm" disabled={!newEmail || isPending} onClick={handleUpdateEmail}>Aggiorna</Button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <div className="p-4 rounded-xl border border-border bg-card/30 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-foreground">Password</span>
+                      <span className="text-sm text-muted-foreground">Ultimo aggiornamento: mai</span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => setPasswordFormOpen(!passwordFormOpen)} className="h-9">Modifica Password</Button>
+                  </div>
+
+                  <AnimatePresence>
+                    {passwordFormOpen && (
+                      <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <div className="pt-2 flex flex-col gap-2">
+                          <div className="relative">
+                            <Input type={showPassword ? "text" : "password"} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Nuova password sicura" className="bg-background/50 border-border focus-visible:ring-primary rounded-xl h-11 pr-10" />
+                            <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="ghost" size="sm" onClick={() => setPasswordFormOpen(false)}>Annulla</Button>
+                            <Button size="sm" disabled={!newPassword || isPending} onClick={handleUpdatePassword}>Aggiorna Password</Button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+
+              <div className="h-px bg-border/50 my-2" />
+
+              {/* Danger Zone */}
+              <h4 className="text-lg font-bold text-destructive tracking-tight flex items-center gap-2">
+                <AlertCircle className="w-5 h-5" /> Danger Zone
+              </h4>
+              <div className="p-5 rounded-2xl border border-destructive/30 bg-destructive/5 flex flex-col gap-5">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex flex-col">
+                    <span className="font-semibold text-foreground">Disattiva Account</span>
+                    <span className="text-sm text-muted-foreground">Sospende temporaneamente il tuo profilo. Potrai riattivarlo facendo login.</span>
+                  </div>
+                  <Button variant="outline" disabled={isPending} onClick={handleDeactivate} className="border-border hover:bg-accent text-foreground shrink-0 rounded-xl">Disattiva temporaneamente</Button>
+                </div>
+
+                <div className="h-px bg-destructive/10" />
+
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                  <div className="flex flex-col pb-2">
+                    <span className="font-semibold text-destructive">Elimina Account Definitivamente</span>
+                    <span className="text-sm text-muted-foreground">Attenzione: l'eliminazione è irreversibile e rimuoverà immediatamente tutti i tuoi dati.</span>
+                    
+                    <AnimatePresence>
+                      {deleteConfirmOpen && (
+                        <motion.div initial={{ height: 0, opacity: 0, marginTop: 0 }} animate={{ height: 'auto', opacity: 1, marginTop: 12 }} exit={{ height: 0, opacity: 0, marginTop: 0 }} className="overflow-hidden flex flex-col gap-2">
+                          <Label className="text-destructive text-xs font-semibold">Digita <span className="underline">{profileData.username}</span> per confermare</Label>
+                          <Input value={deleteUsername} onChange={e => setDeleteUsername(e.target.value)} className="bg-destructive/10 border-destructive focus-visible:ring-destructive rounded-xl h-11 text-foreground" />
+                          <div className="flex gap-2 mt-1">
+                            <Button variant="ghost" size="sm" onClick={() => { setDeleteConfirmOpen(false); setDeleteUsername(''); }}>Annulla</Button>
+                            <Button variant="destructive" size="sm" disabled={deleteUsername !== profileData.username || isPending} onClick={handleDeleteAccount} className="font-bold">
+                              Conferma Eliminazione
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  {!deleteConfirmOpen && (
+                    <Button variant="destructive" onClick={() => setDeleteConfirmOpen(true)} className="shrink-0 rounded-xl font-bold">Elimina Account</Button>
+                  )}
+                </div>
+              </div>
+
+            </div>
+
+            {/* Floating Action Bar */}
+            <AnimatePresence>
+              {isProfileDirty && (
+                <motion.div 
+                  initial={{ y: 50, opacity: 0 }} 
+                  animate={{ y: 0, opacity: 1 }} 
+                  exit={{ y: 50, opacity: 0 }} 
+                  className="absolute bottom-6 left-6 right-6 p-4 rounded-2xl bg-popover/95 border border-border shadow-2xl shadow-black/40 backdrop-blur flex items-center justify-between z-50 text-popover-foreground"
+                >
+                  <span className="text-sm font-semibold ml-2">Modifiche non salvate</span>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" disabled={isPending} onClick={() => setProfileData(initialProfileData)} className="rounded-xl">Annulla</Button>
+                    <Button onClick={handleSaveProfile} disabled={isPending} className="rounded-xl px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                      {isPending ? 'Salvataggio...' : 'Salva Modifiche'}
+                    </Button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )
+      case 'preferences':
+        return (
+          <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
+            <div className="p-8 rounded-[2rem] border border-border bg-card/30 flex flex-col items-center justify-center text-center max-w-sm relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 opacity-50 group-hover:opacity-100 transition-opacity duration-700" />
+              <div className="w-16 h-16 rounded-full bg-background border border-border flex items-center justify-center mb-6 relative z-10 shadow-xl shadow-black/20">
+                <Sliders className="w-8 h-8 text-primary" />
+              </div>
+              <h4 className="text-2xl font-black text-foreground mb-2 relative z-10">Preferenze Studio</h4>
+              <p className="text-sm text-muted-foreground font-medium mb-6 relative z-10">
+                L'algoritmo di iterazione spaziata customizzabile arriverà a breve per tutti gli utenti pro.
+              </p>
+              <div className="px-4 py-1.5 rounded-full bg-primary/20 border border-primary/30 text-primary text-xs font-bold uppercase tracking-widest relative z-10">
+                Coming Soon
+              </div>
+            </div>
+          </div>
+        )
+      case 'appearance':
+        return (
+          <div className="flex flex-col gap-6">
+            <h3 className="text-xl md:text-2xl font-bold text-foreground tracking-tight">Aspetto</h3>
+            <div className="flex flex-col gap-4 mt-2">
+              <div className="flex items-center justify-between p-4 rounded-xl border border-border/50 bg-card/30">
+                <div className="flex flex-col">
+                  <span className="font-medium text-foreground">Tema Applicazione</span>
+                  <span className="text-xs text-muted-foreground">Seleziona la modalità di visualizzazione</span>
+                </div>
+                <Switch 
+                  withThemeIcon 
+                  checked={theme === 'dark'} 
+                  onCheckedChange={(c) => setTheme(c ? 'dark' : 'light')} 
+                />
+              </div>
+            </div>
+          </div>
+        )
+    }
+  }
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 sm:p-6">
+          {/* Overlay */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { delay: exitDuration, duration: exitDuration } }}
+            onClick={onClose}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+          />
+
+          {/* Modal Container */}
+          <motion.div
+            layout
+            initial={{ scale: 0.95, opacity: 0, y: 15 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.95, opacity: 0, y: 15, transition: { delay: exitDuration, duration: exitDuration } }}
+            transition={{ layout: springConfig, default: { duration: layoutDuration } }}
+            className="rounded-[2rem] relative z-10 w-[95vw] max-w-[900px] h-[85vh] max-h-[700px] md:h-[650px] border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col md:flex-row"
+          >
+            {/* Sidebar (25% logico, ma dimensionato staticamente on tailwind flex) */}
+            <div className="w-full md:w-64 bg-card/30 border-b md:border-b-0 md:border-r border-border p-4 md:p-6 flex flex-col gap-2 shrink-0">
+              <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 ml-2">Impostazioni</h2>
+              
+              <Button 
+                variant={activeTab === 'profile' ? 'secondary' : 'ghost'} 
+                onClick={() => setActiveTab('profile')}
+                className={`w-full justify-start h-10 rounded-xl font-medium transition-colors ${activeTab === 'profile' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
+              >
+                <User className="w-4 h-4 mr-2" /> Profilo
+              </Button>
+              <Button 
+                variant={activeTab === 'preferences' ? 'secondary' : 'ghost'} 
+                onClick={() => setActiveTab('preferences')}
+                className={`w-full justify-start h-10 rounded-xl font-medium transition-colors ${activeTab === 'preferences' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
+              >
+                <Sliders className="w-4 h-4 mr-2" /> Preferenze
+              </Button>
+              <Button 
+                variant={activeTab === 'appearance' ? 'secondary' : 'ghost'} 
+                onClick={() => setActiveTab('appearance')}
+                className={`w-full justify-start h-10 rounded-xl font-medium transition-colors ${activeTab === 'appearance' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'}`}
+              >
+                <Palette className="w-4 h-4 mr-2" /> Aspetto
+              </Button>
+            </div>
+
+            {/* Content Area */}
+            <div className="flex-1 p-6 md:p-10 relative flex flex-col">
+              <button 
+                onClick={onClose} 
+                className="absolute top-6 right-6 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <div className="w-full h-full relative mt-8 md:mt-0 flex-1 flex flex-col">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeTab}
+                    initial={{ opacity: 0, scale: 0.95, filter: 'blur(8px)' }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: 1, 
+                      filter: 'blur(0px)',
+                      transition: { ...springConfig, delay: exitDuration } 
+                    }}
+                    exit={{ 
+                      opacity: 0, 
+                      scale: 0.95, 
+                      filter: 'blur(8px)',
+                      transition: { duration: exitDuration, ease: "easeIn" }
+                    }}
+                    className="w-full h-full flex flex-col origin-center overflow-y-auto custom-scrollbar"
+                  >
+                    {renderContent()}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>,
+    document.body
+  )
+}
+</file>
+
+<file path="src/components/theme-provider.tsx">
+"use client"
+
+import * as React from "react"
+import { ThemeProvider as NextThemesProvider } from "next-themes"
+
+export function ThemeProvider({
+  children,
+  ...props
+}: React.ComponentProps<typeof NextThemesProvider>) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
+}
+</file>
+
+<file path="src/components/ui/calendar.tsx">
+"use client"
+
+import * as React from "react"
+import {
+  DayPicker,
+  getDefaultClassNames,
+  type DayButton,
+  type Locale,
+} from "react-day-picker"
+
+import { cn } from "@/lib/utils"
+import { Button, buttonVariants } from "@/components/ui/button"
+import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react"
+
+function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  captionLayout = "label",
+  buttonVariant = "ghost",
+  locale,
+  formatters,
+  components,
+  ...props
+}: React.ComponentProps<typeof DayPicker> & {
+  buttonVariant?: React.ComponentProps<typeof Button>["variant"]
+}) {
+  const defaultClassNames = getDefaultClassNames()
+
+  return (
+    <DayPicker
+      showOutsideDays={showOutsideDays}
+      className={cn(
+        "group/calendar bg-background p-2 [--cell-radius:var(--radius-md)] [--cell-size:--spacing(7)] in-data-[slot=card-content]:bg-transparent in-data-[slot=popover-content]:bg-transparent",
+        String.raw`rtl:**:[.rdp-button\_next>svg]:rotate-180`,
+        String.raw`rtl:**:[.rdp-button\_previous>svg]:rotate-180`,
+        className
+      )}
+      captionLayout={captionLayout}
+      locale={locale}
+      formatters={{
+        formatMonthDropdown: (date) =>
+          date.toLocaleString(locale?.code, { month: "short" }),
+        ...formatters,
+      }}
+      classNames={{
+        root: cn("w-fit", defaultClassNames.root),
+        months: cn(
+          "relative flex flex-col gap-4 md:flex-row",
+          defaultClassNames.months
+        ),
+        month: cn("flex w-full flex-col gap-4", defaultClassNames.month),
+        nav: cn(
+          "absolute inset-x-0 top-0 flex w-full items-center justify-between gap-1",
+          defaultClassNames.nav
+        ),
+        button_previous: cn(
+          buttonVariants({ variant: buttonVariant }),
+          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
+          defaultClassNames.button_previous
+        ),
+        button_next: cn(
+          buttonVariants({ variant: buttonVariant }),
+          "size-(--cell-size) p-0 select-none aria-disabled:opacity-50",
+          defaultClassNames.button_next
+        ),
+        month_caption: cn(
+          "flex h-(--cell-size) w-full items-center justify-center px-(--cell-size)",
+          defaultClassNames.month_caption
+        ),
+        dropdowns: cn(
+          "flex h-(--cell-size) w-full items-center justify-center gap-1.5 text-sm font-medium",
+          defaultClassNames.dropdowns
+        ),
+        dropdown_root: cn(
+          "relative rounded-(--cell-radius)",
+          defaultClassNames.dropdown_root
+        ),
+        dropdown: cn(
+          "absolute inset-0 bg-popover opacity-0",
+          defaultClassNames.dropdown
+        ),
+        caption_label: cn(
+          "font-medium select-none",
+          captionLayout === "label"
+            ? "text-sm"
+            : "flex items-center gap-1 rounded-(--cell-radius) text-sm [&>svg]:size-3.5 [&>svg]:text-muted-foreground",
+          defaultClassNames.caption_label
+        ),
+        table: "w-full border-collapse",
+        weekdays: cn("flex", defaultClassNames.weekdays),
+        weekday: cn(
+          "flex-1 rounded-(--cell-radius) text-[0.8rem] font-normal text-muted-foreground select-none",
+          defaultClassNames.weekday
+        ),
+        week: cn("mt-2 flex w-full", defaultClassNames.week),
+        week_number_header: cn(
+          "w-(--cell-size) select-none",
+          defaultClassNames.week_number_header
+        ),
+        week_number: cn(
+          "text-[0.8rem] text-muted-foreground select-none",
+          defaultClassNames.week_number
+        ),
+        day: cn(
+          "group/day relative aspect-square h-full w-full rounded-(--cell-radius) p-0 text-center select-none [&:last-child[data-selected=true]_button]:rounded-r-(--cell-radius)",
+          props.showWeekNumber
+            ? "[&:nth-child(2)[data-selected=true]_button]:rounded-l-(--cell-radius)"
+            : "[&:first-child[data-selected=true]_button]:rounded-l-(--cell-radius)",
+          defaultClassNames.day
+        ),
+        range_start: cn(
+          "relative isolate z-0 rounded-l-(--cell-radius) bg-muted after:absolute after:inset-y-0 after:right-0 after:w-4 after:bg-muted",
+          defaultClassNames.range_start
+        ),
+        range_middle: cn("rounded-none", defaultClassNames.range_middle),
+        range_end: cn(
+          "relative isolate z-0 rounded-r-(--cell-radius) bg-muted after:absolute after:inset-y-0 after:left-0 after:w-4 after:bg-muted",
+          defaultClassNames.range_end
+        ),
+        today: cn(
+          "rounded-(--cell-radius) bg-muted text-foreground data-[selected=true]:rounded-none",
+          defaultClassNames.today
+        ),
+        outside: cn(
+          "text-muted-foreground aria-selected:text-muted-foreground",
+          defaultClassNames.outside
+        ),
+        disabled: cn(
+          "text-muted-foreground opacity-50",
+          defaultClassNames.disabled
+        ),
+        hidden: cn("invisible", defaultClassNames.hidden),
+        ...classNames,
+      }}
+      components={{
+        Root: ({ className, rootRef, ...props }) => {
+          return (
+            <div
+              data-slot="calendar"
+              ref={rootRef}
+              className={cn(className)}
+              {...props}
+            />
+          )
+        },
+        Chevron: ({ className, orientation, ...props }) => {
+          if (orientation === "left") {
+            return (
+              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
+            )
+          }
+
+          if (orientation === "right") {
+            return (
+              <ChevronRightIcon className={cn("size-4", className)} {...props} />
+            )
+          }
+
+          return (
+            <ChevronDownIcon className={cn("size-4", className)} {...props} />
+          )
+        },
+        DayButton: ({ ...props }) => (
+          <CalendarDayButton locale={locale} {...props} />
+        ),
+        WeekNumber: ({ children, ...props }) => {
+          return (
+            <td {...props}>
+              <div className="flex size-(--cell-size) items-center justify-center text-center">
+                {children}
+              </div>
+            </td>
+          )
+        },
+        ...components,
+      }}
+      {...props}
+    />
+  )
+}
+
+function CalendarDayButton({
+  className,
+  day,
+  modifiers,
+  locale,
+  ...props
+}: React.ComponentProps<typeof DayButton> & { locale?: Partial<Locale> }) {
+  const defaultClassNames = getDefaultClassNames()
+
+  const ref = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    if (modifiers.focused) ref.current?.focus()
+  }, [modifiers.focused])
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      data-day={day.date.toLocaleDateString(locale?.code)}
+      data-selected-single={
+        modifiers.selected &&
+        !modifiers.range_start &&
+        !modifiers.range_end &&
+        !modifiers.range_middle
+      }
+      data-range-start={modifiers.range_start}
+      data-range-end={modifiers.range_end}
+      data-range-middle={modifiers.range_middle}
+      className={cn(
+        "relative isolate z-10 flex aspect-square size-auto w-full min-w-(--cell-size) flex-col gap-1 border-0 leading-none font-normal group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10 group-data-[focused=true]/day:border-ring group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring/50 data-[range-end=true]:rounded-(--cell-radius) data-[range-end=true]:rounded-r-(--cell-radius) data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground data-[range-middle=true]:rounded-none data-[range-middle=true]:bg-muted data-[range-middle=true]:text-foreground data-[range-start=true]:rounded-(--cell-radius) data-[range-start=true]:rounded-l-(--cell-radius) data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground data-[selected-single=true]:bg-primary data-[selected-single=true]:text-primary-foreground dark:hover:text-foreground [&>span]:text-xs [&>span]:opacity-70",
+        defaultClassNames.day,
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Calendar, CalendarDayButton }
+</file>
+
+<file path="src/components/ui/card.tsx">
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Card({
+  className,
+  size = "default",
+  ...props
+}: React.ComponentProps<"div"> & { size?: "default" | "sm" }) {
+  return (
+    <div
+      data-slot="card"
+      data-size={size}
+      className={cn(
+        "group/card flex flex-col gap-4 overflow-hidden rounded-xl bg-card py-4 text-sm text-card-foreground ring-1 ring-foreground/10 has-data-[slot=card-footer]:pb-0 has-[>img:first-child]:pt-0 data-[size=sm]:gap-3 data-[size=sm]:py-3 data-[size=sm]:has-data-[slot=card-footer]:pb-0 *:[img:first-child]:rounded-t-xl *:[img:last-child]:rounded-b-xl",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-header"
+      className={cn(
+        "group/card-header @container/card-header grid auto-rows-min items-start gap-1 rounded-t-xl px-4 group-data-[size=sm]/card:px-3 has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=card-description]:grid-rows-[auto_auto] [.border-b]:pb-4 group-data-[size=sm]/card:[.border-b]:pb-3",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-title"
+      className={cn(
+        "font-heading text-base leading-snug font-medium group-data-[size=sm]/card:text-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-description"
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-action"
+      className={cn(
+        "col-start-2 row-span-2 row-start-1 self-start justify-self-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function CardContent({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-content"
+      className={cn("px-4 group-data-[size=sm]/card:px-3", className)}
+      {...props}
+    />
+  )
+}
+
+function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="card-footer"
+      className={cn(
+        "flex items-center rounded-b-xl border-t bg-muted/50 p-4 group-data-[size=sm]/card:p-3",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  Card,
+  CardHeader,
+  CardFooter,
+  CardTitle,
+  CardAction,
+  CardDescription,
+  CardContent,
+}
+</file>
+
+<file path="src/components/ui/checkbox.tsx">
+"use client"
+
+import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox"
+
+import { cn } from "@/lib/utils"
+import { CheckIcon } from "lucide-react"
+
+function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
+  return (
+    <CheckboxPrimitive.Root
+      data-slot="checkbox"
+      className={cn(
+        "peer relative flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input transition-colors outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 aria-invalid:aria-checked:border-primary dark:bg-input/30 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground dark:data-checked:bg-primary",
+        className
+      )}
+      {...props}
+    >
+      <CheckboxPrimitive.Indicator
+        data-slot="checkbox-indicator"
+        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+      >
+        <CheckIcon
+        />
+      </CheckboxPrimitive.Indicator>
+    </CheckboxPrimitive.Root>
+  )
+}
+
+export { Checkbox }
+</file>
+
+<file path="src/components/ui/dialog.tsx">
+"use client"
+
+import * as React from "react"
+import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
+
+import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { XIcon } from "lucide-react"
+
+function Dialog({ ...props }: DialogPrimitive.Root.Props) {
+  return <DialogPrimitive.Root data-slot="dialog" {...props} />
+}
+
+function DialogTrigger({ ...props }: DialogPrimitive.Trigger.Props) {
+  return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
+}
+
+function DialogPortal({ ...props }: DialogPrimitive.Portal.Props) {
+  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
+}
+
+function DialogClose({ ...props }: DialogPrimitive.Close.Props) {
+  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />
+}
+
+function DialogOverlay({
+  className,
+  ...props
+}: DialogPrimitive.Backdrop.Props) {
+  return (
+    <DialogPrimitive.Backdrop
+      data-slot="dialog-overlay"
+      className={cn(
+        "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DialogContent({
+  className,
+  children,
+  showCloseButton = true,
+  ...props
+}: DialogPrimitive.Popup.Props & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Popup
+        data-slot="dialog-content"
+        className={cn(
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            render={
+              <Button
+                variant="ghost"
+                className="absolute top-2 right-2"
+                size="icon-sm"
+              />
+            }
+          >
+            <XIcon
+            />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Popup>
+    </DialogPortal>
+  )
+}
+
+function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="dialog-header"
+      className={cn("flex flex-col gap-2", className)}
+      {...props}
+    />
+  )
+}
+
+function DialogFooter({
+  className,
+  showCloseButton = false,
+  children,
+  ...props
+}: React.ComponentProps<"div"> & {
+  showCloseButton?: boolean
+}) {
+  return (
+    <div
+      data-slot="dialog-footer"
+      className={cn(
+        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {showCloseButton && (
+        <DialogPrimitive.Close render={<Button variant="outline" />}>
+          Close
+        </DialogPrimitive.Close>
+      )}
+    </div>
+  )
+}
+
+function DialogTitle({ className, ...props }: DialogPrimitive.Title.Props) {
+  return (
+    <DialogPrimitive.Title
+      data-slot="dialog-title"
+      className={cn(
+        "font-heading text-base leading-none font-medium",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function DialogDescription({
+  className,
+  ...props
+}: DialogPrimitive.Description.Props) {
+  return (
+    <DialogPrimitive.Description
+      data-slot="dialog-description"
+      className={cn(
+        "text-sm text-muted-foreground *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogOverlay,
+  DialogPortal,
+  DialogTitle,
+  DialogTrigger,
+}
+</file>
+
+<file path="src/components/ui/input.tsx">
+import * as React from "react"
+import { Input as InputPrimitive } from "@base-ui/react/input"
+
+import { cn } from "@/lib/utils"
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <InputPrimitive
+      type={type}
+      data-slot="input"
+      className={cn(
+        "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none file:inline-flex file:h-6 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Input }
+</file>
+
+<file path="src/components/ui/label.tsx">
+"use client"
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Label({ className, ...props }: React.ComponentProps<"label">) {
+  return (
+    <label
+      data-slot="label"
+      className={cn(
+        "flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Label }
+</file>
+
+<file path="src/components/ui/popover.tsx">
+"use client"
+
+import * as React from "react"
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover"
+
+import { cn } from "@/lib/utils"
+
+function Popover({ ...props }: PopoverPrimitive.Root.Props) {
+  return <PopoverPrimitive.Root data-slot="popover" {...props} />
+}
+
+function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
+  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+}
+
+function PopoverContent({
+  className,
+  align = "center",
+  alignOffset = 0,
+  side = "bottom",
+  sideOffset = 4,
+  ...props
+}: PopoverPrimitive.Popup.Props &
+  Pick<
+    PopoverPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset"
+  >) {
+  return (
+    <PopoverPrimitive.Portal>
+      <PopoverPrimitive.Positioner
+        align={align}
+        alignOffset={alignOffset}
+        side={side}
+        sideOffset={sideOffset}
+        className="isolate z-50"
+      >
+        <PopoverPrimitive.Popup
+          data-slot="popover-content"
+          className={cn(
+            "z-50 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            className
+          )}
+          {...props}
+        />
+      </PopoverPrimitive.Positioner>
+    </PopoverPrimitive.Portal>
+  )
+}
+
+function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="popover-header"
+      className={cn("flex flex-col gap-0.5 text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverTitle({ className, ...props }: PopoverPrimitive.Title.Props) {
+  return (
+    <PopoverPrimitive.Title
+      data-slot="popover-title"
+      className={cn("font-heading font-medium", className)}
+      {...props}
+    />
+  )
+}
+
+function PopoverDescription({
+  className,
+  ...props
+}: PopoverPrimitive.Description.Props) {
+  return (
+    <PopoverPrimitive.Description
+      data-slot="popover-description"
+      className={cn("text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+}
+</file>
+
+<file path="src/components/ui/select.tsx">
+"use client"
+
+import * as React from "react"
+import { Select as SelectPrimitive } from "@base-ui/react/select"
+
+import { cn } from "@/lib/utils"
+import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+
+const Select = SelectPrimitive.Root
+
+function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
+  return (
+    <SelectPrimitive.Group
+      data-slot="select-group"
+      className={cn("scroll-my-1 p-1", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+  return (
+    <SelectPrimitive.Value
+      data-slot="select-value"
+      className={cn("flex flex-1 text-left", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectTrigger({
+  className,
+  size = "default",
+  children,
+  ...props
+}: SelectPrimitive.Trigger.Props & {
+  size?: "sm" | "default"
+}) {
+  return (
+    <SelectPrimitive.Trigger
+      data-slot="select-trigger"
+      data-size={size}
+      className={cn(
+        "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon
+        render={
+          <ChevronDownIcon className="pointer-events-none size-4 text-muted-foreground" />
+        }
+      />
+    </SelectPrimitive.Trigger>
+  )
+}
+
+function SelectContent({
+  className,
+  children,
+  side = "bottom",
+  sideOffset = 4,
+  align = "center",
+  alignOffset = 0,
+  alignItemWithTrigger = true,
+  ...props
+}: SelectPrimitive.Popup.Props &
+  Pick<
+    SelectPrimitive.Positioner.Props,
+    "align" | "alignOffset" | "side" | "sideOffset" | "alignItemWithTrigger"
+  >) {
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Positioner
+        side={side}
+        sideOffset={sideOffset}
+        align={align}
+        alignOffset={alignOffset}
+        alignItemWithTrigger={alignItemWithTrigger}
+        className="isolate z-[300]"
+      >
+        <SelectPrimitive.Popup
+          data-slot="select-content"
+          data-align-trigger={alignItemWithTrigger}
+          className={cn("relative isolate z-[300] max-h-(--available-height) w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[align-trigger=true]:animate-none data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95", className )}
+          {...props}
+        >
+          <SelectScrollUpButton />
+          <SelectPrimitive.List>{children}</SelectPrimitive.List>
+          <SelectScrollDownButton />
+        </SelectPrimitive.Popup>
+      </SelectPrimitive.Positioner>
+    </SelectPrimitive.Portal>
+  )
+}
+
+function SelectLabel({
+  className,
+  ...props
+}: SelectPrimitive.GroupLabel.Props) {
+  return (
+    <SelectPrimitive.GroupLabel
+      data-slot="select-label"
+      className={cn("px-1.5 py-1 text-xs text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectItem({
+  className,
+  children,
+  ...props
+}: SelectPrimitive.Item.Props) {
+  return (
+    <SelectPrimitive.Item
+      data-slot="select-item"
+      className={cn(
+        "relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        className
+      )}
+      {...props}
+    >
+      <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
+        {children}
+      </SelectPrimitive.ItemText>
+      <SelectPrimitive.ItemIndicator
+        render={
+          <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+        }
+      >
+        <CheckIcon className="pointer-events-none" />
+      </SelectPrimitive.ItemIndicator>
+    </SelectPrimitive.Item>
+  )
+}
+
+function SelectSeparator({
+  className,
+  ...props
+}: SelectPrimitive.Separator.Props) {
+  return (
+    <SelectPrimitive.Separator
+      data-slot="select-separator"
+      className={cn("pointer-events-none -mx-1 my-1 h-px bg-border", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectScrollUpButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollUpArrow>) {
+  return (
+    <SelectPrimitive.ScrollUpArrow
+      data-slot="select-scroll-up-button"
+      className={cn(
+        "top-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <ChevronUpIcon
+      />
+    </SelectPrimitive.ScrollUpArrow>
+  )
+}
+
+function SelectScrollDownButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollDownArrow>) {
+  return (
+    <SelectPrimitive.ScrollDownArrow
+      data-slot="select-scroll-down-button"
+      className={cn(
+        "bottom-0 z-10 flex w-full cursor-default items-center justify-center bg-popover py-1 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      <ChevronDownIcon
+      />
+    </SelectPrimitive.ScrollDownArrow>
+  )
+}
+
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectScrollDownButton,
+  SelectScrollUpButton,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+}
+</file>
+
+<file path="src/components/ui/switch.tsx">
+"use client"
+
+import { Switch as SwitchPrimitive } from "@base-ui/react/switch"
+import { Sun, Moon } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+function Switch({
+  className,
+  size = "default",
+  withThemeIcon,
+  ...props
+}: SwitchPrimitive.Root.Props & {
+  size?: "sm" | "default"
+  withThemeIcon?: boolean
+}) {
+  return (
+    <SwitchPrimitive.Root
+      data-slot="switch"
+      data-size={size}
+      className={cn(
+        "peer group/switch relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-all outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-[size=default]:h-[22px] data-[size=default]:w-[42px] data-[size=sm]:h-[14px] data-[size=sm]:w-[24px] dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 data-checked:bg-primary data-unchecked:bg-zinc-200 dark:data-unchecked:bg-input/80 data-disabled:cursor-not-allowed data-disabled:opacity-50",
+        className
+      )}
+      {...props}
+    >
+      <SwitchPrimitive.Thumb
+        data-slot="switch-thumb"
+        className="pointer-events-none group/thumb flex items-center justify-center rounded-full bg-background ring-0 transition-transform group-data-[size=default]/switch:size-[18px] group-data-[size=sm]/switch:size-3 group-data-[size=default]/switch:data-checked:translate-x-[calc(100%+2px)] group-data-[size=sm]/switch:data-checked:translate-x-[calc(100%-2px)] dark:data-checked:bg-primary-foreground group-data-[size=default]/switch:data-unchecked:translate-x-[2px] group-data-[size=sm]/switch:data-unchecked:translate-x-0 dark:data-unchecked:bg-foreground relative overflow-hidden"
+      >
+        {withThemeIcon && (
+          <>
+            <Sun className="absolute w-[10px] h-[10px] text-zinc-900 dark:text-yellow-600 transition-all scale-100 opacity-100 group-data-checked/thumb:scale-0 group-data-checked/thumb:opacity-0" />
+            <Moon className="absolute w-[10px] h-[10px] text-zinc-900 transition-all scale-0 opacity-0 group-data-checked/thumb:scale-100 group-data-checked/thumb:opacity-100" />
+          </>
+        )}
+      </SwitchPrimitive.Thumb>
+    </SwitchPrimitive.Root>
+  )
+}
+
+export { Switch }
+</file>
+
+<file path="src/components/ui/textarea.tsx">
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "flex field-sizing-content min-h-16 w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-base transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Textarea }
+</file>
+
+<file path="src/components/user-menu.tsx">
+'use client'
+
+import { useState, useRef, useEffect } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { Settings, LogOut, Moon, Sun } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
+import { useTheme } from 'next-themes'
+import SettingsDialog from './settings-dialog'
+
+export default function UserMenu({ 
+  user, 
+  signOutAction 
+}: { 
+  user: any; 
+  signOutAction: () => Promise<void> 
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setIsOpen(false)
+    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+
+  const initials = user?.email?.substring(0, 2).toUpperCase() || 'U'
+
+  return (
+    <>
+      <div className="relative" ref={menuRef}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="relative flex items-center justify-center w-9 h-9 md:w-10 md:h-10 rounded-full bg-card/50 border border-border hover:border-border/80 transition-all select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary shadow-lg shadow-black/20 text-foreground"
+        >
+          {user?.user_metadata?.avatar_url ? (
+            <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-xs md:text-sm font-bold">{initials}</span>
+          )}
+        </button>
+
+        <AnimatePresence>
+          {isOpen && (
+              <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: -10, transition: { duration: 0.15 } }}
+              transition={{ type: "spring", bounce: 0.25, duration: 0.4 }}
+              className="absolute right-0 top-full mt-3 w-60 p-2 rounded-2xl border border-border bg-popover/95 backdrop-blur-2xl shadow-2xl shadow-black/40 z-50 origin-top-right flex flex-col font-medium text-popover-foreground"
+            >
+              <div className="px-3 py-2 mb-1 flex flex-col">
+                <span className="text-sm font-semibold truncate">
+                  {user?.user_metadata?.full_name || 'Utente'}
+                </span>
+                <span className="text-xs text-muted-foreground truncate">
+                  {user?.email}
+                </span>
+              </div>
+
+              <div className="h-px bg-border/50 my-1 mx-2" />
+
+              <button 
+                onClick={() => { setIsOpen(false); setSettingsOpen(true) }}
+                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors text-sm text-left relative overflow-hidden group"
+              >
+                <Settings className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                Impostazioni
+              </button>
+
+              <div className="h-px bg-border/50 my-1 mx-2" />
+
+              <div className="flex items-center justify-between p-2.5 rounded-xl text-muted-foreground text-sm hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer" onClick={(e) => {
+                  e.stopPropagation()
+                  setTheme(theme === 'dark' ? 'light' : 'dark')
+              }}>
+                <div className="flex items-center gap-3">
+                  {mounted && theme === 'dark' ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
+                  Tema
+                </div>
+                <div onClick={(e) => e.stopPropagation()}>
+                  {mounted && (
+                    <Switch 
+                      withThemeIcon 
+                      checked={theme === 'dark'} 
+                      onCheckedChange={(c) => setTheme(c ? 'dark' : 'light')} 
+                      size="sm"
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-border/50 my-1 mx-2" />
+
+              <button 
+                onClick={() => { setIsOpen(false); signOutAction() }}
+                className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-destructive/10 text-destructive transition-colors text-sm text-left group"
+              >
+                <LogOut className="w-4 h-4 transition-transform group-hover:-translate-x-0.5" />
+                Logout
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <SettingsDialog user={user} open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    </>
+  )
+}
+</file>
+
+<file path="src/middleware.ts">
+import { type NextRequest } from 'next/server'
+import { updateSession } from '@/utils/supabase/middleware'
+
+export async function middleware(request: NextRequest) {
+  return await updateSession(request)
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for the ones starting with:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * Feel free to modify this pattern to include more paths.
+     */
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
+}
+</file>
+
+<file path="src/types/index.ts">
+export interface Activity {
+  id: string
+  user_id: string
+  subject: string
+  is_repetition: boolean
+  is_exercise: boolean
+  is_completed: boolean
+  notes: string | null
+  date: string // YYYY-MM-DD
+  time_start?: string | null
+  time_end?: string | null
+  created_at: string
+  series_id?: string | null
+}
+
+export interface UserProfile {
+  id: string
+  first_name: string
+  last_name: string
+  birth_date: string
+  username: string
+  is_active: boolean
+}
+</file>
+
+<file path="src/utils/supabase/client.ts">
+import { createBrowserClient } from '@supabase/ssr'
+
+export function createClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  )
+}
+</file>
+
+<file path="src/utils/supabase/middleware.ts">
+import { createServerClient } from '@supabase/ssr'
+import { NextResponse, type NextRequest } from 'next/server'
+
+export async function updateSession(request: NextRequest) {
+  let supabaseResponse = NextResponse.next({
+    request,
+  })
+
+  // createServerClient for middleware
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return request.cookies.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
+          supabaseResponse = NextResponse.next({
+            request,
+          })
+          cookiesToSet.forEach(({ name, value, options }) =>
+            supabaseResponse.cookies.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+
+  // refreshing the auth token
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (
+    !user &&
+    !request.nextUrl.pathname.startsWith('/login') &&
+    !request.nextUrl.pathname.startsWith('/auth')
+  ) {
+    // no user, potentially respond by redirecting the user to the login page
+    const url = request.nextUrl.clone()
+    url.pathname = '/login'
+    return NextResponse.redirect(url)
+  }
+
+  // if user is logged in, and tries to visit login, redirect to dashboard
+  if (user && request.nextUrl.pathname.startsWith('/login')) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+  }
+
+  return supabaseResponse
+}
+</file>
+
+<file path="src/utils/supabase/server.ts">
+import { createServerClient, type CookieOptions } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+
+export async function createClient() {
+  const cookieStore = await cookies()
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
+    }
+  )
+}
+</file>
+
+<file path="next.config.ts">
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+  reactCompiler: true,
+};
+
+export default nextConfig;
+</file>
+
+<file path="src/app/layout.tsx">
+import type { Metadata } from "next";
+import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+
+export const metadata: Metadata = {
+  title: "Active Recall",
+  description: "App per tracciare sessioni di studio e ripetizioni",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="it" className="h-full antialiased dark" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+      </head>
+      <body className="min-h-full flex flex-col font-sans bg-background text-foreground" suppressHydrationWarning>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+          {children}
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+</file>
+
+<file path="src/app/page.tsx">
+import { redirect } from 'next/navigation'
+
+export default function Home() {
+  redirect('/dashboard')
+}
+</file>
+
+<file path="src/components/ui/button.tsx">
+"use client"
+
+import { Button as ButtonPrimitive } from "@base-ui/react/button"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        outline:
+          "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground hover:bg-secondary/80 aria-expanded:bg-secondary aria-expanded:text-secondary-foreground",
+        ghost:
+          "hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
+        destructive:
+          "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default:
+          "h-8 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        xs: "h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] in-data-[slot=button-group]:rounded-lg has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-9 gap-1.5 px-2.5 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+        icon: "size-8",
+        "icon-xs":
+          "size-6 rounded-[min(var(--radius-md),10px)] in-data-[slot=button-group]:rounded-lg [&_svg:not([class*='size-'])]:size-3",
+        "icon-sm":
+          "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
+        "icon-lg": "size-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant = "default",
+  size = "default",
+  ...props
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+  return (
+    <ButtonPrimitive
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+</file>
+
+<file path="src/lib/utils.ts">
+import { clsx, type ClassValue } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+</file>
+
+</files>
