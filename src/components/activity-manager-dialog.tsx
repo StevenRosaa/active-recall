@@ -83,6 +83,7 @@ export default function ActivityManagerDialog({
     if (view === 'add' || selectedActivity) {
       return (
         <ActivityFormDialog
+          existingActivities={activities}
           initialData={selectedActivity}
           onSuccess={handleClose}
           onBack={() => {
@@ -123,7 +124,7 @@ export default function ActivityManagerDialog({
                   className="p-3 md:p-4 rounded-xl flex items-center justify-between group-hover border border-border/50 bg-card/40 hover:bg-accent/80 hover:text-accent-foreground cursor-pointer transition-colors"
                 >
                   <div>
-                    <h4 className="font-medium text-foreground text-sm tracking-tight">{group.subject}</h4>
+                    <h4 className="font-medium text-foreground text-sm tracking-tight break-words">{group.subject}</h4>
                     <div className="mt-1">
                       {group.isGroup ? (
                         <span className="inline-flex items-center rounded-md bg-primary/20 px-2 py-0.5 text-[10px] font-semibold text-primary-100 ring-1 ring-inset ring-primary/30">
@@ -164,14 +165,14 @@ export default function ActivityManagerDialog({
     return (
       <div className="flex flex-col items-center justify-center p-2 gap-4 w-full">
         <h2 className="text-2xl font-semibold text-foreground text-center mb-4">Area Gestione</h2>
-        <Button onClick={() => setView('add')} className="w-full h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+        <Button onClick={() => setView('add')} className="w-full h-14 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground font-semibold text-base flex items-center justify-center gap-2 transition-all active:scale-95">
           <Plus className="w-5 h-5" /> NUOVA SESSIONE
         </Button>
         <div className="flex w-full gap-3">
-          <Button onClick={() => setView('edit-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-accent text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+          <Button onClick={() => setView('edit-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-accent text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
             <Edit2 className="w-4 h-4" /> MODIFICA
           </Button>
-          <Button onClick={() => setView('delete-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-transform hover:scale-[1.02] active:scale-95">
+          <Button onClick={() => setView('delete-list')} variant="outline" className="flex-1 h-14 rounded-xl bg-card/50 border border-border hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 text-foreground font-medium text-sm flex items-center justify-center gap-2 transition-all active:scale-95">
             <Trash2 className="w-4 h-4" /> ELIMINA
           </Button>
         </div>
@@ -197,14 +198,14 @@ export default function ActivityManagerDialog({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 15, transition: { delay: exitDuration, duration: 0.2 } }}
             transition={{ layout: { type: "spring", bounce: 0.1, duration: layoutDuration }, default: { duration: 0.3 } }}
-            className="rounded-[2rem] p-5 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
+            className="rounded-[2rem] p-4 sm:p-6 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
           >
-            <button onClick={handleClose} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20">
+            <button onClick={handleClose} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-all active:scale-90 hover:bg-accent p-2 rounded-full z-20">
               <X className="w-4 h-4" />
             </button>
 
             {/* Contenitore di supporto per l'allineamento */}
-            <div className="flex w-full flex-1 items-center justify-center relative">
+            <div className="flex w-full max-w-full flex-1 items-center justify-center relative overflow-x-hidden">
 
               {/* Torniamo a popLayout per evitare i collassi a scatti del DOM */}
               <AnimatePresence mode="popLayout" initial={false}>
@@ -246,7 +247,7 @@ export default function ActivityManagerDialog({
                   initial="hidden"
                   animate="visible"
                   exit="exit"
-                  className="w-full flex flex-col justify-center origin-center"
+                  className="w-full max-w-full flex flex-col justify-center origin-center overflow-x-hidden"
                 >
                   {renderContent()}
                 </motion.div>

@@ -6,15 +6,15 @@ import { Activity } from '@/types/index'
 import { Button } from '@/components/ui/button'
 import { format } from 'date-fns'
 import { it } from 'date-fns/locale'
-import { X, Calendar as CalendarIcon, Clock, Edit2, Trash2, CheckCircle2, RotateCcw, AlertTriangle, FileText } from 'lucide-react'
+import { X, Calendar as CalendarIcon, Clock, Edit2, Trash2, CheckCircle2, RotateCcw, AlertTriangle, FileText, Play } from 'lucide-react'
 import { toggleActivityCompletion, updateActivityNotes, deleteActivity } from '@/app/actions/activities'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Textarea } from '@/components/ui/textarea'
 
 export default function ActivityDetailsDialog({
-  activity, open, onClose
+  activity, open, onClose, onStartSession
 }: {
-  activity: Activity | null, open: boolean, onClose: () => void
+  activity: Activity | null, open: boolean, onClose: () => void, onStartSession?: () => void
 }) {
   const [view, setView] = useState<'view' | 'edit-notes' | 'delete'>('view')
   const [mounted, setMounted] = useState(false)
@@ -164,7 +164,7 @@ export default function ActivityDetailsDialog({
               </span>
             )}
           </div>
-          <h2 className={`text-2xl md:text-3xl font-bold tracking-tight text-foreground transition-all ${activity.is_completed ? 'line-through opacity-40' : ''}`}>
+          <h2 className={`text-2xl md:text-3xl font-bold tracking-tight text-foreground transition-all break-words ${activity.is_completed ? 'line-through opacity-40' : ''}`}>
             {activity.subject}
           </h2>
           <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-muted-foreground font-medium">
@@ -186,7 +186,7 @@ export default function ActivityDetailsDialog({
             <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
               <FileText className="w-3.5 h-3.5" /> Note
             </h4>
-            <p className="text-sm text-foreground whitespace-pre-wrap">{notes}</p>
+            <p className="text-sm text-foreground whitespace-pre-wrap break-words">{notes}</p>
             <Button 
               size="icon" 
               variant="ghost" 
@@ -209,6 +209,15 @@ export default function ActivityDetailsDialog({
         )}
 
         <div className="flex flex-col gap-3 mt-2">
+          {!activity.is_completed && onStartSession && (
+            <Button
+              onClick={onStartSession}
+              disabled={isPending}
+              className="w-full h-14 rounded-xl font-bold text-base flex items-center justify-center gap-2 transition-all active:scale-95 bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+            >
+              <Play className="w-5 h-5 fill-current" /> Inizia Sessione
+            </Button>
+          )}
           <Button
             onClick={handleToggleCompletion}
             disabled={isPending}
@@ -269,13 +278,13 @@ export default function ActivityDetailsDialog({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 15, transition: { delay: 0.2, duration: 0.2 } }}
             transition={{ layout: springConfig, default: { duration: 0.3 } }}
-            className="rounded-[2rem] p-5 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
+            className="rounded-[2rem] p-4 sm:p-6 md:p-8 relative z-10 w-full max-w-md border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col justify-center min-h-[300px]"
           >
-            <button onClick={handleClose} disabled={isPending} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20">
+            <button onClick={handleClose} disabled={isPending} className="absolute top-5 right-5 text-muted-foreground hover:text-foreground transition-all active:scale-90 hover:bg-accent p-2 rounded-full z-20">
               <X className="w-4 h-4" />
             </button>
 
-            <div className="flex w-full flex-1 items-center justify-center relative">
+            <div className="flex w-full max-w-full flex-1 items-center justify-center relative overflow-x-hidden">
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
                   key={view + (activity?.id || '')}
@@ -298,7 +307,7 @@ export default function ActivityDetailsDialog({
                   initial="hidden"
                   animate="visible"
                   exit="exit"
-                  className="w-full flex flex-col justify-center origin-center"
+                  className="w-full max-w-full flex flex-col justify-center origin-center overflow-x-hidden"
                 >
                   {renderContent()}
                 </motion.div>

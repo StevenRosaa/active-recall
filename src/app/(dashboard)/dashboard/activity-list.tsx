@@ -78,7 +78,7 @@ export default function ActivityList({ activities }: { activities: Activity[] })
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive-foreground hover:bg-destructive rounded-full transition-all shadow-lg"
+                className="h-8 w-8 opacity-0 sm:group-hover:opacity-100 text-destructive hover:text-destructive-foreground hover:bg-destructive rounded-full transition-all active:scale-90 shadow-lg"
                 onClick={() => handleDelete(activity.id)}
                 disabled={isPending}
               >

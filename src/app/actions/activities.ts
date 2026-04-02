@@ -3,7 +3,7 @@
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
 
-export async function addActivity(formData: FormData) {
+export async function addActivity(payloadJson: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
@@ -11,58 +11,15 @@ export async function addActivity(formData: FormData) {
     throw new Error('Not authenticated')
   }
 
-  const dateFrom = formData.get('dateFrom') as string
-  const time_start = formData.get('time_start') as string || null
-  const time_end = formData.get('time_end') as string || null
-  const subject = formData.get('subject') as string
-  const is_repetition = formData.get('is_repetition') === 'on'
-  const is_exercise = formData.get('is_exercise') === 'on'
-  const notes = formData.get('notes') as string
-  const recurrence = formData.get('recurrence') as string || 'nessuna'
-  const repetitionsStr = formData.get('repetitions') as string
-  const repetitions = repetitionsStr ? parseInt(repetitionsStr, 10) : 1
+  const activitiesToInsert = JSON.parse(payloadJson)
 
-  const baseDate = new Date(dateFrom)
-  const activitiesToInsert = []
+  // Ensure security overrides by assigning correct user.id
+  const secureActivities = activitiesToInsert.map((act: any) => ({
+    ...act,
+    user_id: user.id
+  }))
 
-  const series_id = recurrence !== 'nessuna' && repetitions > 1 ? crypto.randomUUID() : null
-
-  const createRecord = (targetDate: Date) => ({
-    user_id: user.id,
-    date: targetDate.toISOString().split('T')[0],
-    time_start,
-    time_end,
-    subject,
-    is_repetition,
-    is_exercise,
-    notes: notes || null,
-    series_id
-  })
-
-  // Generiamo le attività in base alla ricorsività
-  if (recurrence === 'nessuna' || repetitions <= 1) {
-    activitiesToInsert.push(createRecord(baseDate))
-  } else {
-    let current = new Date(baseDate)
-
-    for (let i = 0; i < repetitions; i++) {
-      activitiesToInsert.push(createRecord(new Date(current)))
-      
-      if (recurrence === 'giornaliera') {
-        current.setDate(current.getDate() + 1)
-      } else if (recurrence === 'settimanale') {
-        current.setDate(current.getDate() + 7)
-      } else if (recurrence === 'mensile') {
-        current.setMonth(current.getMonth() + 1)
-      } else if (recurrence === 'annuale') {
-        current.setFullYear(current.getFullYear() + 1)
-      } else {
-        break // Fallback
-      }
-    }
-  }
-
-  const { error } = await supabase.from('activities').insert(activitiesToInsert)
+  const { error } = await supabase.from('activities').insert(secureActivities)
 
   if (error) {
     throw new Error(error.message)
@@ -135,3 +92,20 @@ export async function updateActivityNotes(id: string, notes: string) {
 
   revalidatePath('/dashboard')
 }
+
+export async function saveSessionDuration(id: string, durationInMinutes: number) {
+  const supabase = await createClient()
+  
+  // Aggiorna la durata e marca anche l'attività come completata automaticamente
+  const { error } = await supabase.from('activities').update({ 
+    actual_duration: durationInMinutes, 
+    is_completed: true 
+  }).eq('id', id)
+  
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/dashboard')
+}
+

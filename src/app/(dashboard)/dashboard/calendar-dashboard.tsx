@@ -7,12 +7,15 @@ import { ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { format, startOfWeek, addDays, isSameDay, addWeeks, subWeeks } from 'date-fns'
 import { it } from 'date-fns/locale'
 import ActivityDetailsDialog from '@/components/activity-details-dialog'
+import { FocusSessionOverlay } from '@/components/focus-session-overlay'
+import { motion } from 'framer-motion'
 
 export default function CalendarDashboard({ initialActivities }: { initialActivities: Activity[] }) {
   const [currentWeekStart, setCurrentWeekStart] = useState(
     startOfWeek(new Date(), { weekStartsOn: 1 })
   )
   const [selectedEvent, setSelectedEvent] = useState<Activity | null>(null)
+  const [focusSessionActivity, setFocusSessionActivity] = useState<Activity | null>(null)
 
   const weekDays = Array.from({ length: 7 }).map((_, i) => addDays(currentWeekStart, i))
   const hours = Array.from({ length: 24 }).map((_, i) => `${i.toString().padStart(2, '0')}:00`)
@@ -40,10 +43,28 @@ export default function CalendarDashboard({ initialActivities }: { initialActivi
     }
   }
 
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: { staggerChildren: 0.15 }
+    }
+  }
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring' as const, bounce: 0.4 } }
+  }
+
   return (
-    <div className="w-full h-full flex flex-col relative gap-4">
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="w-full h-full flex flex-col relative gap-4"
+    >
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between z-10 shrink-0 px-1">
+      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row items-start sm:items-center justify-between z-10 shrink-0 px-1">
         <h2 className="text-xl md:text-3xl font-bold capitalize tracking-tight text-foreground drop-shadow-md">
           {format(weekDays[0], 'd MMM', { locale: it })} - {format(weekDays[6], 'd MMM yyyy', { locale: it })}
         </h2>
@@ -60,10 +81,10 @@ export default function CalendarDashboard({ initialActivities }: { initialActivi
             </Button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Contenitore Griglia in stile Glassmorphism */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative z-10 border border-border rounded-xl md:rounded-3xl bg-background/40 backdrop-blur-2xl shadow-2xl shadow-black/20">
+      <motion.div variants={itemVariants} className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar relative z-10 border border-border rounded-xl md:rounded-3xl bg-background/40 backdrop-blur-2xl shadow-2xl shadow-black/20">
 
         <div className="grid grid-cols-[35px_repeat(7,minmax(0,1fr))] md:grid-cols-[60px_repeat(7,minmax(0,1fr))] w-full">
 
@@ -142,13 +163,22 @@ export default function CalendarDashboard({ initialActivities }: { initialActivi
             })}
           </div>
         </div>
-      </div>
+      </motion.div>
 
       <ActivityDetailsDialog 
         activity={selectedEvent} 
         open={!!selectedEvent} 
         onClose={() => setSelectedEvent(null)} 
+        onStartSession={() => {
+          setFocusSessionActivity(selectedEvent)
+          setSelectedEvent(null)
+        }}
       />
-    </div>
+      <FocusSessionOverlay
+        activity={focusSessionActivity}
+        isOpen={!!focusSessionActivity}
+        onClose={() => setFocusSessionActivity(null)}
+      />
+    </motion.div>
   )
 }

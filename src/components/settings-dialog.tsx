@@ -5,13 +5,15 @@ import { createPortal } from 'react-dom'
 import { useTransition } from 'react'
 import { updateProfile, updateEmail, updatePassword, deactivateAccount, deleteAccount } from '@/app/actions/profile'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, User, Sliders, Palette, Mail, Lock, ShieldAlert, AlertTriangle, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { X, User, Sliders, Palette, Mail, Lock, ShieldAlert, AlertTriangle, AlertCircle, Eye, EyeOff, Trash2, Bell, BellOff } from 'lucide-react'
 import { format, parseISO } from 'date-fns'
 import { it } from 'date-fns/locale'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { getRecallProfiles, addRecallProfile, deleteRecallProfile } from '@/app/actions/preferences'
+import { RecallProfile } from '@/types'
 import { useTheme } from 'next-themes'
 
 type Tab = 'profile' | 'preferences' | 'appearance'
@@ -42,6 +44,17 @@ export default function SettingsDialog({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [deleteUsername, setDeleteUsername] = useState('')
 
+  // Preferences State
+  const [profiles, setProfiles] = useState<RecallProfile[]>([])
+  const [newProfileName, setNewProfileName] = useState('')
+  const [newProfileIntervals, setNewProfileIntervals] = useState('')
+  const [isLoadingProfiles, setIsLoadingProfiles] = useState(false)
+
+  // Notifications State
+  const [pushSupported, setPushSupported] = useState(false)
+  const [pushSubscribed, setPushSubscribed] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
+
   useEffect(() => { setMounted(true) }, [])
 
   useEffect(() => {
@@ -65,7 +78,33 @@ export default function SettingsDialog({
     }
   }, [user, open])
 
+  // Preferences Logic
+  useEffect(() => {
+    if (activeTab === 'preferences' && open) {
+      setIsLoadingProfiles(true)
+      getRecallProfiles().then(data => {
+        setProfiles(data)
+        setIsLoadingProfiles(false)
+      })
+    }
+  }, [activeTab, open])
+
   if (!mounted) return null
+
+  // Check push support and existing subscription
+  const checkPushStatus = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return
+    setPushSupported(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      setPushSubscribed(!!sub)
+    } catch { /* ignore */ }
+  }
+  // Run once on mount via effect already handled by mounted state
+  if (pushSupported === false && typeof window !== 'undefined' && 'PushManager' in window) {
+    checkPushStatus()
+  }
 
   const isProfileDirty = JSON.stringify(profileData) !== JSON.stringify(initialProfileData)
 
@@ -111,6 +150,33 @@ export default function SettingsDialog({
     })
   }
 
+  const handleAddProfile = () => {
+    if (!newProfileName || !newProfileIntervals) return
+    const intervalsArray = newProfileIntervals.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+    if (intervalsArray.length === 0) return
+    
+    startTransition(async () => {
+      try {
+        await addRecallProfile(newProfileName, intervalsArray)
+        const data = await getRecallProfiles()
+        setProfiles(data)
+        setNewProfileName('')
+        setNewProfileIntervals('')
+      } catch (e) {
+        console.error(e)
+      }
+    })
+  }
+
+  const handleDeleteProfile = (id: string) => {
+    startTransition(async () => {
+      try {
+        await deleteRecallProfile(id)
+        setProfiles(prev => prev.filter(p => p.id !== id))
+      } catch(e) { console.error(e) }
+    })
+  }
+
   const handleDeactivate = () => {
     if (confirm("Sei sicuro di voler disattivare temporaneamente il tuo account?")) {
       startTransition(async () => {
@@ -133,6 +199,55 @@ export default function SettingsDialog({
   const layoutDuration = 0.4;
   const exitDuration = 0.15;
   const springConfig = { type: "spring" as const, bounce: 0.15, duration: layoutDuration }
+
+  function urlB64ToUint8Array(base64String: string) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+    const rawData = window.atob(base64)
+    const outputArray = new Uint8Array(rawData.length)
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i)
+    return outputArray
+  }
+
+  const handleSubscribePush = async () => {
+    setPushLoading(true)
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        alert('Permesso notifiche negato. Abilitalo dalle impostazioni del browser.')
+        setPushLoading(false)
+        return
+      }
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      })
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sub.toJSON()),
+      })
+      setPushSubscribed(true)
+    } catch (err) {
+      console.error('Push subscribe error:', err)
+      alert('Errore durante la registrazione delle notifiche.')
+    }
+    setPushLoading(false)
+  }
+
+  const handleUnsubscribePush = async () => {
+    setPushLoading(true)
+    try {
+      const reg = await navigator.serviceWorker.ready
+      const sub = await reg.pushManager.getSubscription()
+      if (sub) await sub.unsubscribe()
+      setPushSubscribed(false)
+    } catch (err) {
+      console.error('Push unsubscribe error:', err)
+    }
+    setPushLoading(false)
+  }
 
   const renderContent = () => {
     switch (activeTab) {
@@ -184,12 +299,12 @@ export default function SettingsDialog({
               </h4>
               <div className="flex flex-col gap-3">
                 <div className="p-4 rounded-xl border border-border bg-card/30 flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex flex-col min-w-0">
                       <span className="font-medium text-foreground">Email Associata</span>
-                      <span className="text-sm text-muted-foreground">{user?.email}</span>
+                      <span className="text-sm text-muted-foreground truncate">{user?.email}</span>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setEmailFormOpen(!emailFormOpen)} className="h-9">Modifica Email</Button>
+                    <Button variant="outline" size="sm" onClick={() => setEmailFormOpen(!emailFormOpen)} className="h-9 shrink-0 w-full sm:w-auto">Modifica Email</Button>
                   </div>
                   
                   <AnimatePresence>
@@ -208,12 +323,12 @@ export default function SettingsDialog({
                 </div>
 
                 <div className="p-4 rounded-xl border border-border bg-card/30 flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex flex-col">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex flex-col min-w-0">
                       <span className="font-medium text-foreground">Password</span>
-                      <span className="text-sm text-muted-foreground">Ultimo aggiornamento: {formattedPasswordDate}</span>
+                      <span className="text-sm text-muted-foreground truncate">Ultimo aggiornamento: {formattedPasswordDate}</span>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setPasswordFormOpen(!passwordFormOpen)} className="h-9">Modifica Password</Button>
+                    <Button variant="outline" size="sm" onClick={() => setPasswordFormOpen(!passwordFormOpen)} className="h-9 shrink-0 w-full sm:w-auto">Modifica Password</Button>
                   </div>
 
                   <AnimatePresence>
@@ -238,6 +353,38 @@ export default function SettingsDialog({
               </div>
 
               <div className="h-px bg-border/50 my-2" />
+
+              {/* Notifications */}
+              {pushSupported && (
+                <>
+                  <h4 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-primary" /> Notifiche Push
+                  </h4>
+                  <div className="p-4 rounded-xl border border-border bg-card/30 flex items-center justify-between gap-4">
+                    <div className="flex flex-col">
+                      <span className="font-medium text-foreground">
+                        {pushSubscribed ? 'Notifiche Attive' : 'Notifiche Disattivate'}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        {pushSubscribed
+                          ? 'Riceverai promemoria per le sessioni di ripetizione programmate.'
+                          : 'Attiva le notifiche per ricevere promemoria giornalieri.'}
+                      </span>
+                    </div>
+                    <Button
+                      variant={pushSubscribed ? 'outline' : 'default'}
+                      size="sm"
+                      disabled={pushLoading}
+                      onClick={pushSubscribed ? handleUnsubscribePush : handleSubscribePush}
+                      className={`shrink-0 rounded-xl gap-2 ${pushSubscribed ? '' : 'bg-primary hover:bg-primary/90 shadow-[0_0_12px_rgba(168,85,247,0.3)]'}`}
+                    >
+                      {pushSubscribed ? <BellOff className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                      {pushLoading ? 'Caricamento...' : pushSubscribed ? 'Disattiva' : 'Attiva'}
+                    </Button>
+                  </div>
+                  <div className="h-px bg-border/50 my-2" />
+                </>
+              )}
 
               {/* Danger Zone */}
               <h4 className="text-lg font-bold text-destructive tracking-tight flex items-center gap-2">
@@ -293,8 +440,8 @@ export default function SettingsDialog({
                 >
                   <span className="text-sm font-semibold ml-2">Modifiche non salvate</span>
                   <div className="flex items-center gap-2">
-                    <Button variant="ghost" disabled={isPending} onClick={() => setProfileData(initialProfileData)} className="rounded-xl">Annulla</Button>
-                    <Button onClick={handleSaveProfile} disabled={isPending} className="rounded-xl px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                    <Button variant="ghost" disabled={isPending} onClick={() => setProfileData(initialProfileData)} className="rounded-xl transition-all active:scale-95">Annulla</Button>
+                    <Button onClick={handleSaveProfile} disabled={isPending} className="rounded-xl px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-bold shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all active:scale-95">
                       {isPending ? 'Salvataggio...' : 'Salva Modifiche'}
                     </Button>
                   </div>
@@ -305,18 +452,54 @@ export default function SettingsDialog({
         )
       case 'preferences':
         return (
-          <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
-            <div className="p-8 rounded-[2rem] border border-border bg-card/30 flex flex-col items-center justify-center text-center max-w-sm relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-br from-primary/10 to-accent/10 opacity-50 group-hover:opacity-100 transition-opacity duration-700" />
-              <div className="w-16 h-16 rounded-full bg-background border border-border flex items-center justify-center mb-6 relative z-10 shadow-xl shadow-black/20">
-                <Sliders className="w-8 h-8 text-primary" />
+          <div className="flex flex-col gap-6 w-full max-w-full mx-auto">
+            <h3 className="text-xl md:text-2xl font-bold text-foreground tracking-tight flex items-center gap-2">
+              <Sliders className="w-6 h-6 text-primary" /> Profili Ripetizione Spaziata
+            </h3>
+            
+            <div className="flex flex-col gap-4 pb-12">
+              <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mt-2">Crea Nuovo Profilo</h4>
+              <div className="p-4 rounded-2xl border border-primary/20 bg-primary/5 flex flex-col gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-foreground">Nome Profilo</Label>
+                    <Input value={newProfileName} onChange={e => setNewProfileName(e.target.value)} placeholder="es. Lungo Termine" className="bg-background/50 border-border" />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label className="text-foreground">Intervalli (giorni, separati da virgola)</Label>
+                    <Input value={newProfileIntervals} onChange={e => setNewProfileIntervals(e.target.value)} placeholder="es. 1, 7, 30, 90" className="bg-background/50 border-border" />
+                  </div>
+                </div>
+                <Button onClick={handleAddProfile} disabled={isPending || !newProfileName || !newProfileIntervals} className="w-full sm:w-auto self-end mt-2 transition-all active:scale-95">
+                  Aggiungi Profilo
+                </Button>
               </div>
-              <h4 className="text-2xl font-black text-foreground mb-2 relative z-10">Preferenze Studio</h4>
-              <p className="text-sm text-muted-foreground font-medium mb-6 relative z-10">
-                L'algoritmo di iterazione spaziata customizzabile arriverà a breve per tutti gli utenti pro.
-              </p>
-              <div className="px-4 py-1.5 rounded-full bg-primary/20 border border-primary/30 text-primary text-xs font-bold uppercase tracking-widest relative z-10">
-                Coming Soon
+
+              <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-widest mt-6">I Tuoi Profili</h4>
+              <div className="flex flex-col gap-3">
+                {isLoadingProfiles ? (
+                  <p className="text-sm text-muted-foreground animate-pulse text-center py-4">Caricamento profili in corso...</p>
+                ) : profiles.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">Nessun profilo personalizzato creato.</p>
+                ) : (
+                  profiles.map(p => (
+                    <div key={p.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-xl border border-border/50 bg-card/30 hover:bg-card/50 transition-colors group">
+                      <div className="flex flex-col gap-1.5">
+                        <span className="font-bold text-foreground">{p.name}</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {p.intervals.map((interval, i) => (
+                            <span key={i} className="px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 text-accent text-xs font-semibold shadow-sm">
+                              +{interval}g
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <Button variant="ghost" size="icon" onClick={() => handleDeleteProfile(p.id)} disabled={isPending} className="self-end sm:self-auto text-muted-foreground hover:text-destructive hover:bg-destructive/10 sm:opacity-0 sm:group-hover:opacity-100 transition-all active:scale-90 shrink-0">
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -365,8 +548,8 @@ export default function SettingsDialog({
             transition={{ layout: springConfig, default: { duration: layoutDuration } }}
             className="rounded-[2rem] relative z-10 w-[95vw] max-w-[900px] h-[85vh] max-h-[700px] md:h-[650px] border border-border bg-background/90 backdrop-blur-xl shadow-2xl shadow-black/40 overflow-hidden flex flex-col md:flex-row"
           >
-            {/* Sidebar (25% logico, ma dimensionato staticamente on tailwind flex) */}
-            <div className="w-full md:w-64 bg-card/30 border-b md:border-b-0 md:border-r border-border p-4 md:p-6 flex flex-col gap-2 shrink-0">
+            {/* Sidebar */}
+            <div className="w-full md:w-64 bg-card/30 border-b md:border-b-0 md:border-r border-border p-3 sm:p-4 md:p-6 flex flex-col gap-2 shrink-0">
               <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2 ml-2">Impostazioni</h2>
               
               <Button 
@@ -393,10 +576,10 @@ export default function SettingsDialog({
             </div>
 
             {/* Content Area */}
-            <div className="flex-1 p-6 md:p-10 relative flex flex-col">
+            <div className="flex-1 p-4 sm:p-6 md:p-10 relative flex flex-col overflow-x-hidden">
               <button 
                 onClick={onClose} 
-                className="absolute top-6 right-6 text-muted-foreground hover:text-foreground transition-colors hover:bg-accent p-2 rounded-full z-20"
+                className="absolute top-4 right-4 sm:top-6 sm:right-6 text-muted-foreground hover:text-foreground transition-all active:scale-90 hover:bg-accent p-2 rounded-full z-20"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -418,7 +601,7 @@ export default function SettingsDialog({
                       filter: 'blur(8px)',
                       transition: { duration: exitDuration, ease: "easeIn" }
                     }}
-                    className="w-full h-full flex flex-col origin-center overflow-y-auto custom-scrollbar"
+                    className="w-full max-w-full h-full flex flex-col origin-center overflow-x-hidden overflow-y-auto custom-scrollbar"
                   >
                     {renderContent()}
                   </motion.div>

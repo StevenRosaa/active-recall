@@ -1,0 +1,25 @@
+﻿src/components/analytics-dashboard.tsx(118,47): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(129,32): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(129,157): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(130,20): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/components/analytics-dashboard.tsx(132,34): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(132,114): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(132,115): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/components/analytics-dashboard.tsx(132,125): error TS17002: Expected corresponding JSX closing tag for 'div'.
+src/components/analytics-dashboard.tsx(135,11): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(135,13): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(136,11): error TS17002: Expected corresponding JSX closing tag for 'motion.div'.
+src/components/analytics-dashboard.tsx(139,7): error TS1005: ')' expected.
+src/components/analytics-dashboard.tsx(147,34): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(147,49): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(147,86): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/components/analytics-dashboard.tsx(148,15): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(152,30): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(152,146): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(153,26): error TS1127: Invalid character.
+src/components/analytics-dashboard.tsx(153,65): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(154,18): error TS1382: Unexpected token. Did you mean `{'>'}` or `&gt;`?
+src/components/analytics-dashboard.tsx(156,13): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(156,15): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/components/analytics-dashboard.tsx(169,5): error TS1128: Declaration or statement expected.
+src/components/analytics-dashboard.tsx(170,3): error TS1109: Expression expected.
